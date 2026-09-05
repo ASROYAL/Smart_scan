@@ -1,0 +1,11 @@
+# Receiver hardware-abstraction configuration.
+# Describes the (simulated or future real) receiver's physical limits.
+# A real authorized SDR would map its parameters here without changing the
+# DSP, ML, or scheduling layers.
+
+receiver:
+  instantaneous_bandwidth: 2.0e+7   # 20 MHz — the max the receiver can observe at once
+  sample_rate: 2.0e+7               # 20 Msps
+  dwell_time: 0.01                  # 10 ms per observation
+  tuning_delay: 0.001               # 1 ms to retune (front-end settling)
+  # scan_step: null                 # defaults to instantaneous_bandwidth
