@@ -178,24 +178,34 @@ and used identically across schedulers for fair comparison.
 
 ## 8. Honest results
 
-On **100 bands with sparse always-on activity** (the regime the system targets),
-the adaptive scheduler achieves dramatically higher **scan efficiency** because it
-concentrates on active bands once found, while round-robin keeps sweeping empty
-spectrum:
+Actual output of `benchmark_schedulers.py --num-bands 60 --steps 800 --seeds 1 2 3`
+(6 schedulers × 8 scenarios × 3 seeds = 144 runs), averaged across all scenarios:
 
-| Scheduler | Scan efficiency | Avg discovery delay |
-|-----------|-----------------|---------------------|
-| round_robin | 0.03 | 547 ms |
-| random | 0.03 | 56 ms |
-| priority | 0.32 | 547 ms |
-| bandit_ucb | 0.13 | 547 ms |
-| **adaptive** | **0.98** | 269 ms |
+| Scheduler | Discovery ratio | Scan efficiency | Avg discovery delay | Coverage | Avg reward |
+|-----------|-----------------|-----------------|---------------------|----------|------------|
+| **adaptive** | **1.00** | **0.71** | 0.564 s | 0.53 | **0.71** |
+| bandit_thompson | 1.00 | 0.65 | 0.459 s | 1.00 | 0.65 |
+| priority | 1.00 | 0.45 | 0.276 s | 1.00 | 0.45 |
+| bandit_ucb | 1.00 | 0.26 | 0.273 s | 1.00 | 0.26 |
+| round_robin | 0.86 | 0.08 | **0.260 s** | 1.00 | 0.08 |
+| random | 0.84 | 0.09 | 0.269 s | 1.00 | 0.09 |
 
-**But the adaptive scheduler does not win every metric in every regime.** For
-*first-discovery delay* of always-on sources, a systematic sweep is competitive,
-and on small/dense scenarios round-robin can match or beat it. Where that happens,
-the benchmark reports it truthfully — see `data/results/benchmark_summary.csv` after
-running the benchmark. Run it yourself; no numbers here are hand-picked or fabricated.
+**What the adaptive scheduler wins:** scan efficiency (**8.5× round-robin**),
+average reward, and it discovers **every** activity event (ratio 1.00) where
+round-robin and random miss some (0.86 / 0.84). For a continuous-*monitoring*
+mission — keep re-detecting activity — it is the clear winner.
+
+**Where it does not win, reported truthfully:** round-robin has the **lowest average
+discovery delay** (0.260 s vs adaptive's 0.564 s). *Why:* the learning schedulers
+deliberately spend scans exploiting known-active bands, which delays first-discovery
+of *new* events; a systematic sweep finds a fresh event faster on its next pass.
+Adaptive also has lower **coverage** (0.53) because it concentrates on active bands
+rather than visiting every band — a deliberate monitoring tradeoff, not a defect.
+
+So the choice is mission-dependent: **adaptive/Thompson for efficient monitoring,
+round-robin for minimum worst-case discovery latency.** No numbers here are
+hand-picked — regenerate them with the command above; they land in
+`data/results/benchmark_summary.csv` and `benchmark_ranking.csv`.
 
 ---
 
