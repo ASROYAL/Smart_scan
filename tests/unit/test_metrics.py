@@ -1,0 +1,149 @@
+"""Tests for performance metrics."""
+
+import pytest
+
+from smartscan.evaluation import metrics
+from smartscan.evaluation.metrics import ScanRecord
+
+
+def rec(scan=0, t=0.0, band=0, detected=False, active=False, reward=0.0):
+    return ScanRecord(
+        scan_number=scan, timestamp=t, band_id=band,
+        detected=detected, truly_active=active, reward=reward,
+    )
+
+
+class TestPD:
+    def test_perfect_detection(self):
+        records = [rec(detected=True, active=True) for _ in range(5)]
+        assert metrics.probability_of_detection(records) == 1.0
+
+    def test_half_detection(self):
+        records = [
+            rec(detected=True, active=True),
+            rec(detected=False, active=True),
+        ]
+        assert metrics.probability_of_detection(records) == 0.5
+
+    def test_no_active_opportunities(self):
+        records = [rec(detected=False, active=False)]
+        assert metrics.probability_of_detection(records) == 0.0
+
+
+class TestPFA:
+    def test_no_false_alarms(self):
+        records = [rec(detected=False, active=False) for _ in range(5)]
+        assert metrics.probability_of_false_alarm(records) == 0.0
+
+    def test_all_false_alarms(self):
+        records = [rec(detected=True, active=False) for _ in range(5)]
+        assert metrics.probability_of_false_alarm(records) == 1.0
+
+
+class TestScanHitRate:
+    def test_half_hits(self):
+        records = [rec(detected=True), rec(detected=False)]
+        assert metrics.scan_hit_rate(records) == 0.5
+
+
+class TestDiscoveryDelays:
+    def test_basic_delay(self):
+        event_starts = [1.0, 5.0]
+        detections = {0: 1.5, 1: 6.0}
+        delays = metrics.discovery_delays(event_starts, detections)
+        assert delays == [0.5, 1.0]
+
+    def test_undetected_event_excluded(self):
+        event_starts = [1.0, 5.0]
+        detections = {0: 1.5}  # event 1 never detected
+        delays = metrics.discovery_delays(event_starts, detections)
+        assert delays == [0.5]
+
+    def test_delay_statistics(self):
+        delays = [0.5, 1.0, 1.5, 2.0]
+        mean, median, p95 = metrics.delay_statistics(delays)
+        assert mean == pytest.approx(1.25)
+        assert median == pytest.approx(1.25)
+
+    def test_empty_delays(self):
+        assert metrics.delay_statistics([]) == (0.0, 0.0, 0.0)
+
+
+class TestCoverage:
+    def test_full_coverage(self):
+        records = [rec(band=i) for i in range(5)]
+        assert metrics.band_coverage(records, 5) == 1.0
+
+    def test_partial_coverage(self):
+        records = [rec(band=0), rec(band=1)]
+        assert metrics.band_coverage(records, 4) == 0.5
+
+
+class TestStarvationRate:
+    def test_no_starvation(self):
+        # Visit all 2 bands frequently
+        records = []
+        for t in range(10):
+            records.append(rec(t=float(t), band=t % 2))
+        rate = metrics.starvation_rate(records, num_bands=2, duration=10.0,
+                                        starvation_threshold=5.0)
+        assert rate == 0.0
+
+    def test_starved_band(self):
+        # Band 0 visited once at t=0, band 1 never
+        records = [rec(t=0.0, band=0)]
+        rate = metrics.starvation_rate(records, num_bands=2, duration=100.0,
+                                        starvation_threshold=5.0)
+        assert rate == 1.0  # both bands have large gaps
+
+
+class TestScanEfficiency:
+    def test_efficiency(self):
+        records = [
+            rec(detected=True, active=True),   # useful
+            rec(detected=True, active=False),  # false alarm
+            rec(detected=False, active=False),
+            rec(detected=False, active=True),  # miss
+        ]
+        assert metrics.scan_efficiency(records) == 0.25
+
+
+class TestPrecisionRecallF1:
+    def test_perfect(self):
+        records = [
+            rec(detected=True, active=True),
+            rec(detected=False, active=False),
+        ]
+        p, r, f1 = metrics.precision_recall_f1(records)
+        assert p == 1.0
+        assert r == 1.0
+        assert f1 == 1.0
+
+    def test_with_errors(self):
+        records = [
+            rec(detected=True, active=True),   # TP
+            rec(detected=True, active=False),  # FP
+            rec(detected=False, active=True),  # FN
+        ]
+        p, r, f1 = metrics.precision_recall_f1(records)
+        assert p == pytest.approx(0.5)
+        assert r == pytest.approx(0.5)
+        assert f1 == pytest.approx(0.5)
+
+
+class TestActivityDiscoveryRatio:
+    def test_ratio(self):
+        records = [
+            rec(detected=True, active=True),
+            rec(detected=True, active=True),
+        ]
+        assert metrics.activity_discovery_ratio(records, total_activity_events=4) == 0.5
+
+    def test_zero_events(self):
+        assert metrics.activity_discovery_ratio([], 0) == 0.0
+
+
+class TestAverageReward:
+    def test_average(self):
+        records = [rec(reward=1.0), rec(reward=0.0), rec(reward=2.0)]
+        assert metrics.average_reward(records) == pytest.approx(1.0)

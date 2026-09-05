@@ -1,0 +1,45 @@
+environment:
+  total_bandwidth: 1.0e+9       # 1000 MHz
+  center_frequency: 5.0e+8      # 500 MHz (middle of band)
+  num_bands: 50
+  noise_power_dbm: -100.0
+  sample_rate: 2.0e+7           # 20 Msps
+
+receiver:
+  instantaneous_bandwidth: 2.0e+7  # 20 MHz
+  sample_rate: 2.0e+7
+  dwell_time: 0.01              # 10 ms
+  tuning_delay: 0.001           # 1 ms
+
+detector:
+  window: hann
+  psd_method: welch
+  noise_method: median
+  threshold_margin_db: 6.0
+  fft_size: 1024
+  welch_overlap: 0.5
+
+scheduler:
+  type: round_robin
+  exploration_weight: 1.0
+  recency_weight: 1.0
+  uncertainty_weight: 1.0
+  starvation_threshold: 10.0
+  ewma_alpha: 0.1
+  ucb_c: 2.0
+  reward_hit: 1.0
+  reward_miss: 0.0
+  reward_revisit_penalty_scale: 0.01
+
+simulation:
+  duration: 60.0
+  seed: 42
+
+database:
+  backend: memory
+
+logging:
+  level: INFO
+  log_dir: data/results
+  export_csv: true
+  export_json: true
