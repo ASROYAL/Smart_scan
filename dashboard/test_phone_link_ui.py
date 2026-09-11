@@ -35,6 +35,11 @@ phone_link.st.session_state["phone_signal_history"] = [
 phone_link._render_war_mode()
 """
 
+WAR_CLEAR_APP = WAR_APP.replace(
+    '"alert": AlertLevel.CRITICAL',
+    '"alert": AlertLevel.NORMAL',
+).replace('"quality": 95', '"quality": 72')
+
 
 def test_phone_console_renders_without_exception():
     app = AppTest.from_string(APP, default_timeout=15).run()
@@ -54,7 +59,20 @@ def test_war_mode_isolated_interface_renders_response_controls():
     page = " ".join(item.value for item in app.markdown)
     assert "WAR MODE" in page
     assert "PHONE CONTACT OPERATIONS CONSOLE" not in page
-    assert "FIGHTER AIRCRAFT" in app.metric[0].value
+    assert "FIGHTER AIRCRAFT" in page
     labels = [button.label for button in app.button]
     assert "SIMULATE TRACK LOCK" in labels
     assert "MARK TRAINING CONTACT NEUTRALISED" in labels
+
+
+def test_war_mode_requires_operator_authorization_after_signal_clears():
+    app = AppTest.from_string(WAR_CLEAR_APP, default_timeout=15).run()
+
+    assert not app.exception
+    page = " ".join(item.value for item in app.markdown)
+    assert "WAR MODE" in page
+    assert "CLEARANCE PENDING" in page
+    exit_button = next(
+        button for button in app.button if button.label == "AUTHORIZE EXIT FROM WAR MODE"
+    )
+    assert not exit_button.disabled

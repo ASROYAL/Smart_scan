@@ -21,6 +21,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 import streamlit.components.v1 as components
+from plotly.subplots import make_subplots
 
 from smartscan.core.config import load_config
 from smartscan.core.models import DetectorType, SchedulerType
@@ -33,12 +34,14 @@ from smartscan.telemetry.phone import (
     LinkState,
     advance_alert,
     classify_link,
+    quality_to_snr,
     rssi_to_quality,
 )
 
 ROOT = Path(__file__).resolve().parent.parent
 PREFERENCES_PATH = ROOT / "data" / "phone_link_preferences.json"
 UI_REFRESH_SECONDS = 0.1
+WAR_UI_REFRESH_SECONDS = 0.5
 INTAKE_INTERVALS = [0.1, 0.25, 0.5, 1.0, 2.0, 5.0]
 
 
@@ -387,8 +390,8 @@ def assess_training_contact(
 ) -> ContactAssessment:
     """Fuse recent link observations into an explicitly simulated contact assessment.
 
-    The demo maps a phone/browser contact to a fighter aircraft and AirPods to a
-    drone formation. This is scenario configuration, not RF object recognition.
+    The demo maps device categories to airborne contacts. This is scenario
+    configuration, not RF object recognition.
     """
 
     recent = history[-30:]
@@ -398,7 +401,15 @@ def assess_training_contact(
     if math.isnan(volatility):
         volatility = 0.0
     name = str(snapshot.get("name", "UNKNOWN CONTACT"))
-    object_type = "DRONE FORMATION" if "airpod" in name.lower() else "FIGHTER AIRCRAFT"
+    identity = name.lower()
+    if any(token in identity for token in ("airpod", "earbud", "buds", "headphone")):
+        object_type = "DRONE FORMATION"
+    elif any(token in identity for token in ("iphone", "android", "phone", "web link")):
+        object_type = "FIGHTER AIRCRAFT"
+    elif any(token in identity for token in ("watch", "tablet", "ipad", "laptop", "macbook")):
+        object_type = "SURVEILLANCE AIRCRAFT"
+    else:
+        object_type = "UNIDENTIFIED AIRBORNE CONTACT"
     motion = _trend(history)
     freshness = snapshot.get("sample_age")
     freshness_score = 18 if freshness is not None and float(freshness) <= 2.0 else 7
@@ -563,6 +574,114 @@ def _war_chart(history: list[dict[str, Any]]) -> go.Figure:
     return fig
 
 
+def _war_dynamics_chart(history: list[dict[str, Any]]) -> go.Figure:
+    """Show smoothed strength and sample-to-sample change for track assessment."""
+
+    frame = pd.DataFrame(history[-120:])
+    fig = make_subplots(
+        rows=2,
+        cols=1,
+        shared_xaxes=True,
+        vertical_spacing=0.12,
+        subplot_titles=("ROLLING TRACK CONFIDENCE", "SIGNAL RATE OF CHANGE"),
+    )
+    if not frame.empty:
+        quality = frame["quality"].astype(float)
+        smoothed = quality.rolling(window=min(8, len(frame)), min_periods=1).mean()
+        delta = quality.diff().fillna(0.0)
+        fig.add_trace(
+            go.Scatter(
+                x=frame["time"],
+                y=smoothed,
+                line={"color": "#ffb0b0", "width": 2},
+                name="ROLLING QUALITY",
+            ),
+            row=1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Bar(
+                x=frame["time"],
+                y=delta,
+                marker_color=["#ff3333" if value >= 0 else "#7f8c8d" for value in delta],
+                name="DELTA",
+            ),
+            row=2,
+            col=1,
+        )
+    fig.add_hline(y=90, line_color="#ff4040", line_dash="dot", row=1, col=1)
+    fig.add_hline(y=0, line_color="#875050", row=2, col=1)
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#050000",
+        plot_bgcolor="#080000",
+        font={"color": "#ffd7d7", "family": "JetBrains Mono", "size": 10},
+        margin={"l": 48, "r": 16, "t": 58, "b": 30},
+        height=360,
+        showlegend=False,
+    )
+    fig.update_xaxes(gridcolor="#3b1111")
+    fig.update_yaxes(gridcolor="#3b1111")
+    return fig
+
+
+def _war_confidence_gauge(assessment: ContactAssessment, quality: int) -> go.Figure:
+    threat_index = min(
+        100,
+        round(
+            0.55 * quality
+            + 0.35 * assessment.confidence
+            + (10 if assessment.motion == "APPROACHING" else 4)
+        ),
+    )
+    fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=threat_index,
+            title={"text": "TRAINING PRIORITY INDEX", "font": {"size": 13}},
+            gauge={
+                "axis": {"range": [0, 100]},
+                "bar": {"color": "#ff3434"},
+                "bgcolor": "#150000",
+                "bordercolor": "#702020",
+                "steps": [
+                    {"range": [0, 60], "color": "#151515"},
+                    {"range": [60, 80], "color": "#4b2800"},
+                    {"range": [80, 100], "color": "#4b0000"},
+                ],
+                "threshold": {"line": {"color": "#fff", "width": 3}, "value": 90},
+            },
+        )
+    )
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor="#050000",
+        font={"color": "#ffd7d7", "family": "JetBrains Mono"},
+        margin={"l": 30, "r": 30, "t": 45, "b": 10},
+        height=225,
+    )
+    return fig
+
+
+def _response_ladder(assessment: ContactAssessment) -> tuple[str, ...]:
+    """Return high-level, human-authorized defensive training recommendations."""
+
+    contact_step = {
+        "DRONE FORMATION": "Task counter-UAS surveillance team to corroborate the formation.",
+        "FIGHTER AIRCRAFT": "Cue authorized air-defence surveillance for an independent track.",
+        "SURVEILLANCE AIRCRAFT": "Check airspace authorization and monitor collection behavior.",
+        "UNIDENTIFIED AIRBORNE CONTACT": "Keep the contact unclassified until independent sensors agree.",
+    }[assessment.object_type]
+    return (
+        "Maintain passive custody; do not treat phone-link strength as target identification.",
+        contact_step,
+        "Request radar and IFF corroboration through authorized Indian air-defence command channels.",
+        "Deconflict with civil air-traffic information and friendly-force tracks.",
+        "Escalate to the human command authority for rules-of-engagement decisions.",
+        "Do not recommend or simulate weapon release from this single uncalibrated sensor.",
+    )
+
+
 def _record_training_response(action: str, snapshot: dict[str, Any]) -> None:
     """Record a harmless local response simulation for operator review."""
 
@@ -584,14 +703,14 @@ def _record_training_response(action: str, snapshot: dict[str, Any]) -> None:
     del history[:-20]
 
 
-@st.fragment(run_every=UI_REFRESH_SECONDS)
+@st.fragment(run_every=WAR_UI_REFRESH_SECONDS)
 def _render_war_contact() -> None:
     snapshot = _poll_phone()
-    if snapshot["alert"] != AlertLevel.CRITICAL:
-        st.session_state["phone_war_mode"] = False
-        st.rerun()
-        return
-
+    clearance_pending = snapshot["alert"] != AlertLevel.CRITICAL
+    if clearance_pending:
+        # The operator-controlled War Mode latch stays asserted even when the
+        # sensor condition clears. The underlying measured alert is still shown.
+        get_companion_server().set_alert(AlertLevel.CRITICAL.value, int(snapshot["quality"]))
     history = st.session_state.get("phone_signal_history", [])
     assessment = assess_training_contact(snapshot, history)
     safe_name = html.escape(str(snapshot["name"]))
@@ -601,12 +720,12 @@ def _render_war_contact() -> None:
     st.markdown(
         f"""
         <div class="war-command">
-          <div><div class="war-kicker">AUTOMATIC ESCALATION // THRESHOLD EXCEEDED</div>
+          <div><div class="war-kicker">{'CLEARANCE PENDING // OPERATOR RELEASE REQUIRED' if clearance_pending else 'AUTOMATIC ESCALATION // THRESHOLD EXCEEDED'}</div>
           <div class="war-title">WAR MODE</div><div class="war-sub">CONTACT CUSTODY AND DEFENSIVE RESPONSE SIMULATION</div></div>
           <div class="war-signal"><span>LIVE SIGNAL</span><strong>{int(snapshot['quality'])}%</strong>
           <small>{html.escape(snapshot['source'])} // AGE {age_text}</small></div>
         </div>
-        <div class="war-alert">PRIORITY CONTACT // {html.escape(assessment.track_state)} // AUTOMATIC TRACK ACTIVE</div>
+        <div class="war-alert">{'SIGNAL BELOW TRIGGER // WAR MODE LATCHED' if clearance_pending else 'PRIORITY CONTACT // ' + html.escape(assessment.track_state) + ' // AUTOMATIC TRACK ACTIVE'}</div>
         """,
         unsafe_allow_html=True,
     )
@@ -614,10 +733,14 @@ def _render_war_contact() -> None:
     left, right = st.columns([1.25, 1.0])
     with left:
         st.markdown("### CONTACT INTELLIGENCE")
-        a, b, c = st.columns(3)
-        a.metric("TRAINING CLASS", assessment.object_type)
-        b.metric("ASSESSMENT CONFIDENCE", f"{assessment.confidence}%")
-        c.metric("MOTION", assessment.motion)
+        st.markdown(
+            '<div class="war-facts">'
+            f'<div><span>TRAINING CLASS</span><b>{html.escape(assessment.object_type)}</b></div>'
+            f'<div><span>ASSESSMENT CONFIDENCE</span><b>{assessment.confidence}%</b></div>'
+            f'<div><span>MOTION</span><b>{html.escape(assessment.motion)}</b></div>'
+            "</div>",
+            unsafe_allow_html=True,
+        )
         st.code(
             f"CONTACT={safe_name}\nLINK={snapshot['link_state'].value}\nRSSI={rssi_text}\n"
             f"MEAN_QUALITY={assessment.mean_quality:.1f}%\nVOLATILITY={assessment.volatility:.1f}\n"
@@ -625,8 +748,14 @@ def _render_war_contact() -> None:
             language=None,
         )
         st.plotly_chart(_war_chart(history), width="stretch")
+        st.plotly_chart(_war_dynamics_chart(history), width="stretch")
 
     with right:
+        st.plotly_chart(_war_confidence_gauge(assessment, int(snapshot["quality"])), width="stretch")
+        m1, m2, m3 = st.columns(3)
+        m1.metric("SYNTHETIC SNR INPUT", f"{quality_to_snr(int(snapshot['quality'])):.1f} dB")
+        m2.metric("OBSERVATIONS", len(history))
+        m3.metric("WAR SAMPLES", sum(int(row.get("quality", 0)) > 90 for row in history))
         st.markdown("### OFFLINE EVIDENCE FUSION")
         st.markdown(
             '<div class="war-panel"><b>MODEL JUDGMENT</b><br>'
@@ -636,6 +765,53 @@ def _render_war_contact() -> None:
             + "</div>",
             unsafe_allow_html=True,
         )
+        st.markdown("### RECOMMENDED RESPONSE LADDER")
+        st.markdown(
+            '<div class="war-panel">'
+            + "<br>".join(
+                f"<b>{index:02d}</b> // {html.escape(step)}"
+                for index, step in enumerate(_response_ladder(assessment), start=1)
+            )
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("### SIGNAL-DRIVEN THREAT MODEL")
+        st.caption(
+            "CURRENT LINK QUALITY SETS SYNTHETIC EMITTER SNR; THE SCHEDULER STILL SEES IQ ONLY"
+        )
+        if st.button("RUN CURRENT CONTACT MODEL", width="stretch"):
+            with st.spinner("RUNNING 250-SCAN OFFLINE CONTACT MODEL..."):
+                config = load_config(str(ROOT / "config" / "default.yaml"))
+                config.simulation.num_steps = 250
+                config.simulation.seed = 42
+                scenario = scenario_phone_training(
+                    int(snapshot["quality"]),
+                    seed=42,
+                    num_bands=config.environment.num_bands,
+                    total_bw=config.environment.total_bandwidth,
+                    center=config.environment.center_frequency,
+                )
+                st.session_state["war_training_outcome"] = build_and_run(
+                    config,
+                    SchedulerType.ADAPTIVE.value,
+                    "phone_training",
+                    seed=42,
+                    scenario_override=scenario,
+                )
+                st.session_state["war_training_quality"] = int(snapshot["quality"])
+        war_outcome = st.session_state.get("war_training_outcome")
+        if war_outcome is not None:
+            result = war_outcome.result
+            st.code(
+                f"MODEL_INPUT={st.session_state['war_training_quality']}% -> "
+                f"SNR={quality_to_snr(st.session_state['war_training_quality']):.1f}dB\n"
+                f"PD={result.probability_of_detection:.3f}  "
+                f"PFA={result.probability_of_false_alarm:.3f}  "
+                f"DISCOVERY={result.activity_discovery_ratio:.3f}\n"
+                f"MISSED_EVENTS={result.missed_event_rate:.3f}  "
+                f"CENSORED_DELAY={result.censored_avg_intercept_time * 1000:.0f}ms",
+                language=None,
+            )
         st.markdown("### DEFENSIVE RESPONSE // DEMO")
         st.caption("LOCAL SIMULATION ONLY // THESE CONTROLS DO NOT TRANSMIT OR CONTROL A DEVICE")
         actions = (
@@ -653,6 +829,23 @@ def _render_war_contact() -> None:
             st.dataframe(pd.DataFrame(reversed(log)), width="stretch", hide_index=True)
         else:
             st.code("AWAITING OPERATOR RESPONSE // CONTINUOUS TRACK ACTIVE", language=None)
+
+    if clearance_pending:
+        st.error(
+            f"SENSOR CONDITION CLEARED AT {int(snapshot['quality'])}% // WAR MODE REMAINS LATCHED "
+            "UNTIL AN OPERATOR AUTHORIZES EXIT"
+        )
+        st.caption(
+            "Selecting the control below is the operator's explicit authorization to release "
+            "the War Mode latch and return to Phone Link."
+        )
+        if st.button(
+            "AUTHORIZE EXIT FROM WAR MODE",
+            type="primary",
+            width="stretch",
+        ):
+            st.session_state["phone_war_mode"] = False
+            st.rerun()
 
 
 def _render_war_mode() -> None:
@@ -684,6 +877,10 @@ def _render_war_mode() -> None:
           .war-panel,div[data-testid="stMetric"],[data-testid="stPlotlyChart"],div[data-testid="stDataFrame"] {
             background:#090000 !important;border:1px solid #702020 !important;border-radius:0 !important;}
           .war-panel {padding:14px;line-height:1.65;color:#e8bcbc;min-height:215px}.war-panel b{color:#fff;}
+          .war-facts {display:grid;grid-template-columns:1.35fr 1fr 1fr;gap:10px;margin-bottom:14px;}
+          .war-facts div {background:#090000;border:1px solid #702020;padding:12px;min-height:68px;}
+          .war-facts span {display:block;color:#d77;font-size:.65rem;letter-spacing:.06em;margin-bottom:7px;}
+          .war-facts b {display:block;color:#fff;font-size:.92rem;line-height:1.25;word-break:normal;}
           div[data-testid="stMetric"] {padding:10px;}[data-testid="stMetricValue"] {color:#fff !important;
             font-size:1rem !important;white-space:normal !important;line-height:1.2 !important;}
           [data-testid="stMetricLabel"] p {font-size:.65rem !important;white-space:normal !important;}
@@ -854,9 +1051,9 @@ def render_phone_link(palette: dict[str, str]) -> None:
     initial_snapshot = _poll_phone()
     if initial_snapshot["alert"] == AlertLevel.CRITICAL:
         st.session_state["phone_war_mode"] = True
+    if st.session_state.get("phone_war_mode", False):
         _render_war_mode()
         return
-    st.session_state["phone_war_mode"] = False
     # War Mode intentionally omits normal widgets. Restore their values from
     # non-widget state after Streamlit cleans up those absent widget keys.
     st.session_state.setdefault("phone_source", st.session_state["phone_source_saved"])

@@ -172,7 +172,14 @@ shows the live signal at the top right, derives motion and confidence from the
 rolling observation history, and applies the configured demo identity rule:
 phones represent fighter aircraft and AirPods represent drone formations. Its
 track-lock, containment, handoff, and neutralisation controls create local
-simulation records only; they do not transmit or control a device. Audible alerts are
+simulation records only; they do not transmit or control a device. Other device
+categories are mapped to surveillance aircraft or unidentified airborne contacts
+for the scenario. War Mode remains latched after the signal falls and requires an
+operator acknowledgement before returning to Phone Link. Additional displays show
+smoothed signal history, rate of change, a training priority index, prior threshold
+crossings, and the exact link-quality-to-synthetic-SNR input used by the offline
+contact model. Response guidance requires independent radar/IFF confirmation,
+air-traffic deconfliction, and human command authorization. Audible alerts are
 operator-armed and can be silenced. Press **ARM AUDIO** once after opening the
 dashboard; this user gesture satisfies Safari and Chrome autoplay rules, after
 which caution and War Mode transitions sound automatically. A phone-driven

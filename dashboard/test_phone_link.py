@@ -2,7 +2,12 @@
 
 from datetime import UTC, datetime
 
-from phone_link import assess_training_contact, parse_system_profiler, signal_quality
+from phone_link import (
+    _response_ladder,
+    assess_training_contact,
+    parse_system_profiler,
+    signal_quality,
+)
 
 from smartscan.telemetry.phone import AlertLevel, LinkState
 
@@ -101,3 +106,17 @@ def test_training_assessment_maps_airpods_to_drone_formation():
 
     assert assessment.object_type == "DRONE FORMATION"
     assert assessment.motion == "STABLE"
+
+
+def test_training_assessment_maps_other_devices_without_claiming_real_identification():
+    history = [
+        {"time": datetime.now(UTC), "quality": 93, "rssi_dbm": -44} for _ in range(12)
+    ]
+
+    watch = assess_training_contact(_critical_snapshot("Field Watch"), history)
+    unknown = assess_training_contact(_critical_snapshot("BT-DEVICE-17"), history)
+
+    assert watch.object_type == "SURVEILLANCE AIRCRAFT"
+    assert unknown.object_type == "UNIDENTIFIED AIRBORNE CONTACT"
+    assert "independent sensors" in _response_ladder(unknown)[1]
+    assert "Do not recommend or simulate weapon release" in _response_ladder(unknown)[-1]
