@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / "dashboard"))
 import pandas as pd
 import streamlit as st
 from offline_help import render_help
+from phone_link import render_phone_link
 
 from smartscan.acquisition.simulator_source import SimulatedRFSource
 from smartscan.core.config import load_config
@@ -34,112 +35,78 @@ st.set_page_config(page_title="Cognitive EW Receiver Scheduler", layout="wide",
 
 CONFIG_PATH = ROOT / "config" / "default.yaml"
 
-workspace_view = st.sidebar.radio("Workspace", ["Dashboard", "Offline help"])
+workspace_view = st.sidebar.radio("Workspace", ["Dashboard", "Phone Link", "Offline help"])
 if workspace_view == "Offline help":
     render_help(ROOT / "docs" / "offline-help.md")
     st.stop()
 
-# ---- appearance (light / dark) --------------------------------------------
-_theme = st.sidebar.radio(
-    "Appearance", ["Dark", "Light"], horizontal=True,
-    help="Switch the whole dashboard between dark and light themes.",
-)
+# ---- unified operations-console palette -----------------------------------
 st.sidebar.divider()
-
-_DARK = {"bg": "#0A0E1A", "bg2": "#0E1526", "surf": "rgba(22,29,46,0.66)", "elev": "rgba(31,41,63,0.72)",
-             "bd": "rgba(255,255,255,0.08)", "tx": "#EAF1FC", "mut": "#8595B2", "acc": "#F6A62A", "acc2": "#33D6E6",
-             "good": "#35D07F", "bad": "#FF6B6B", "sh": "0 12px 34px rgba(0,0,0,0.45)",
-             "orb1": "rgba(246,166,42,0.18)", "orb2": "rgba(51,214,230,0.15)",
-             "plot_tmpl": "plotly_dark", "plot_bg": "rgba(0,0,0,0)", "grid": "rgba(255,255,255,0.06)"}
-_LIGHT = {"bg": "#EDF1F8", "bg2": "#E3EAF4", "surf": "rgba(255,255,255,0.82)", "elev": "rgba(255,255,255,0.94)",
-              "bd": "rgba(18,42,72,0.10)", "tx": "#12283F", "mut": "#5E7290", "acc": "#C4791A", "acc2": "#0E8FA6",
-              "good": "#1C9E5A", "bad": "#D34B4B", "sh": "0 12px 30px rgba(20,40,70,0.12)",
-              "orb1": "rgba(246,166,42,0.14)", "orb2": "rgba(51,180,210,0.12)",
-              "plot_tmpl": "plotly_white", "plot_bg": "rgba(0,0,0,0)", "grid": "rgba(18,42,72,0.08)"}
-P = _DARK if _theme == "Dark" else _LIGHT
-bg, bg2, surf, elev, bd, tx, mut, acc, acc2, good, bad, sh, orb1, orb2 = (
-    P[k] for k in ("bg", "bg2", "surf", "elev", "bd", "tx", "mut", "acc", "acc2",
-                   "good", "bad", "sh", "orb1", "orb2"))
+P = {
+    "bg": "#020604", "bg2": "#020604", "surf": "#050b08", "elev": "#08120d",
+    "bd": "#24563a", "tx": "#c9e7d4", "mut": "#67a77f", "acc": "#35ff9a",
+    "acc2": "#69b7ff", "good": "#35ff9a", "bad": "#ff3030", "sh": "none",
+    "orb1": "transparent", "orb2": "transparent", "plot_tmpl": "plotly_dark",
+    "plot_bg": "#030806", "grid": "#173323",
+}
+bg, surf, bd, tx, mut, acc, acc2, good, bad = (
+    P[k] for k in ("bg", "surf", "bd", "tx", "mut", "acc", "acc2", "good", "bad")
+)
 
 st.markdown(
     f"""
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap');
       html, body, .stApp, [class*="css"], [data-testid="stMarkdownContainer"] {{
-        font-family:'Inter',system-ui,-apple-system,'Segoe UI',Roboto,sans-serif; }}
+        font-family:'JetBrains Mono',ui-monospace,monospace; }}
       #MainMenu, footer, [data-testid="stHeader"] {{visibility:hidden; background:transparent !important; height:0;}}
-      .stApp {{
-        background:
-          radial-gradient(1200px 620px at 8% -12%, {orb1}, transparent 60%),
-          radial-gradient(1000px 520px at 112% 14%, {orb2}, transparent 55%),
-          linear-gradient(180deg, {bg} 0%, {bg2} 100%) !important;
-        background-attachment:fixed !important;
-        animation:bgshift 26s ease-in-out infinite; }}
-      @keyframes bgshift {{0%,100%{{background-position:0% 0%,100% 14%,0 0}}50%{{background-position:5% 5%,95% 20%,0 0}}}}
-      section[data-testid="stSidebar"] > div {{background:{surf} !important; backdrop-filter:blur(16px);
+      .stApp {{background:{bg} !important;}}
+      section[data-testid="stSidebar"] > div {{background:{surf} !important;
         border-right:1px solid {bd};}}
       .stApp, .stApp p, .stApp li, [data-testid="stMarkdownContainer"] {{color:{tx};}}
-      h1,h2,h3,h4 {{color:{tx} !important; letter-spacing:-0.01em;}}
-      [data-testid="stWidgetLabel"] p {{color:{mut} !important; font-weight:600; font-size:0.8rem;}}
+      h1,h2,h3,h4 {{color:{tx} !important; letter-spacing:.035em; text-transform:uppercase;}}
+      [data-testid="stWidgetLabel"] p {{color:{mut} !important; font-weight:600; font-size:0.75rem;
+        letter-spacing:.05em; text-transform:uppercase;}}
       button[data-baseweb="tab"] {{color:{mut} !important; font-weight:600;}}
       button[data-baseweb="tab"][aria-selected="true"] {{color:{tx} !important;}}
-      [data-testid="stPlotlyChart"] {{border:1px solid {bd}; border-radius:16px; background:{surf};
-        padding:8px; backdrop-filter:blur(10px); box-shadow:{sh};
-        animation:fadeUp .5s ease both;}}
-      div[data-testid="stMetric"] {{background:{surf}; border:1px solid {bd}; border-radius:14px;
-        padding:14px 16px; backdrop-filter:blur(10px);}}
+      [data-testid="stPlotlyChart"] {{border:1px solid {bd}; border-radius:0; background:{surf}; padding:8px;}}
+      div[data-testid="stMetric"] {{background:{surf}; border:1px solid {bd}; border-radius:0;
+        padding:12px 14px;}}
       [data-testid="stMetricValue"] {{color:{tx} !important;}}
       [data-testid="stMetricLabel"] p {{color:{mut} !important;}}
-      .stButton>button {{background:linear-gradient(135deg,{acc},{acc}cc); color:#0A0E1A;
-        font-weight:700; border:none; border-radius:11px; padding:8px 16px;
-        transition:transform .16s ease, box-shadow .16s ease;}}
-      .stButton>button:hover {{transform:translateY(-2px); box-shadow:0 10px 24px {acc}55;}}
-      div[data-testid="stDataFrame"] {{border:1px solid {bd}; border-radius:14px; overflow:hidden;}}
+      .stButton>button {{background:#102d1e; color:#d9ffe8; font-weight:700;
+        border:1px solid {acc}; border-radius:0; padding:8px 16px;}}
+      .stButton>button:hover {{background:#173d29; color:white;}}
+      div[data-testid="stDataFrame"] {{border:1px solid {bd}; border-radius:0; overflow:hidden;}}
       /* ---- hero ---- */
-      .hero {{display:flex; gap:18px; align-items:center; animation:fadeUp .6s ease both; margin-bottom:2px;}}
-      .radar {{position:relative; width:58px; height:58px; border-radius:50%; flex:0 0 auto;
-        background:radial-gradient(circle, {acc}22 0%, transparent 68%); border:1px solid {acc}44; overflow:hidden;}}
-      .radar .sweep {{position:absolute; inset:0; border-radius:50%;
-        background:conic-gradient(from 0deg, transparent 0deg, {acc}66 42deg, transparent 64deg);
-        animation:spin 3s linear infinite;}}
-      .radar .ring {{position:absolute; inset:9px; border-radius:50%; border:1px solid {acc}33;}}
-      .radar .dot {{position:absolute; top:50%; left:50%; width:5px; height:5px; border-radius:50%;
-        background:{acc}; transform:translate(-50%,-50%); box-shadow:0 0 10px {acc};}}
-      @keyframes spin {{to{{transform:rotate(360deg)}}}}
+      .hero {{border-left:7px solid {acc}; border-top:1px solid {bd}; border-bottom:1px solid {bd};
+        background:{surf}; padding:9px 14px; margin-bottom:8px;}}
       .eyebrow {{font-family:'JetBrains Mono',monospace; font-size:0.7rem; font-weight:700; letter-spacing:0.16em;
-        color:{mut}; text-transform:uppercase; display:flex; align-items:center; gap:8px;}}
-      .livedot {{width:8px; height:8px; border-radius:50%; background:{good}; animation:pulse 1.8s infinite;}}
-      @keyframes pulse {{0%{{box-shadow:0 0 0 0 {good}99}}70%{{box-shadow:0 0 0 9px {good}00}}100%{{box-shadow:0 0 0 0 {good}00}}}}
-      .htitle {{font-size:1.6rem; font-weight:800; color:{tx}; margin-top:5px; line-height:1.08;}}
-      .hsub {{color:{mut}; font-size:0.92rem; margin-top:4px; max-width:840px;}}
-      @keyframes fadeUp {{from{{opacity:0; transform:translateY(12px)}}to{{opacity:1; transform:none}}}}
+        color:{mut}; text-transform:uppercase;}}
+      .htitle {{font-size:1.45rem; font-weight:700; color:{tx}; margin-top:4px; line-height:1.12;
+        letter-spacing:.06em;}}
+      .hsub {{color:{mut}; font-size:0.78rem; margin-top:4px; max-width:960px;}}
       /* ---- status pill ---- */
       .status {{font-family:'JetBrains Mono',monospace; font-size:0.8rem; color:{mut}; background:{surf};
-        border:1px solid {bd}; border-radius:12px; padding:10px 16px; margin:14px 0 6px; backdrop-filter:blur(10px);}}
+        border:1px solid {bd}; border-radius:0; padding:10px 16px; margin:14px 0 6px;}}
       .status b {{color:{acc}; font-weight:700;}}
       /* ---- metric tiles ---- */
-      .tgrid {{display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin:6px 0 2px;}}
-      .tile {{background:{surf}; border:1px solid {bd}; border-radius:16px; padding:15px 17px;
-        backdrop-filter:blur(12px); box-shadow:{sh}; opacity:0; transform:translateY(12px);
-        animation:fadeUp .5s cubic-bezier(.2,.7,.2,1) forwards;
-        transition:transform .18s ease, box-shadow .2s ease, border-color .2s ease; position:relative; overflow:hidden;}}
+      .tgrid {{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin:6px 0 2px;}}
+      .tile {{background:{surf}; border:1px solid {bd}; border-radius:0; padding:13px 15px;
+        position:relative; overflow:hidden;}}
       .tile::after {{content:''; position:absolute; inset:0 0 auto 0; height:2px;
-        background:linear-gradient(90deg,{acc},transparent); opacity:.55;}}
-      .tile:hover {{transform:translateY(-4px); border-color:{acc}55; box-shadow:0 18px 44px rgba(0,0,0,.42);}}
+        background:{acc}; opacity:.65;}}
       .tile .lab {{font-size:0.72rem; font-weight:600; letter-spacing:0.05em; text-transform:uppercase; color:{mut};}}
       .tile .val {{font-size:1.85rem; font-weight:800; color:{tx}; margin-top:8px; letter-spacing:-0.02em;
         font-variant-numeric:tabular-nums;}}
       .chip {{display:inline-block; margin-top:9px; font-family:'JetBrains Mono',monospace; font-size:0.7rem;
-        font-weight:700; padding:2px 9px; border-radius:999px;}}
+        font-weight:700; padding:2px 9px; border-radius:0; border:1px solid currentColor;}}
       .chip.up {{color:{good}; background:{good}1f;}} .chip.down {{color:{bad}; background:{bad}1f;}}
     </style>
     <div class="hero">
-      <div class="radar"><span class="sweep"></span><span class="ring"></span><span class="dot"></span></div>
-      <div>
-        <div class="eyebrow"><span class="livedot"></span> LIVE · SIMULATED RF ENVIRONMENT</div>
-        <div class="htitle">Cognitive Electronic-Support Receiver Scheduler</div>
-        <div class="hsub">Adaptive wideband intercept — steer a narrow-band ES receiver to catch emitters across the spectrum, learning online from hits &amp; misses.</div>
-      </div>
+      <div class="eyebrow">SMARTSCAN // SIMULATED RF SURVEILLANCE // RESEARCH TRAINING ENVIRONMENT</div>
+      <div class="htitle">SPECTRUM OPERATIONS CONSOLE</div>
+      <div class="hsub">NARROWBAND RECEIVER SCHEDULING // ONLINE HIT-MISS LEARNING // CONTROLLED GROUND-TRUTH EVALUATION</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -150,9 +117,9 @@ def _style(fig):
     """Apply the current (light/dark) theme consistently to every chart."""
     fig.update_layout(
         template=P["plot_tmpl"], paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor=P["plot_bg"],
-        font={"color": P["tx"], "size": 12, "family": "Inter"},
+        font={"color": P["tx"], "size": 12, "family": "JetBrains Mono"},
         colorway=[P["acc"], P["acc2"], P["good"], P["bad"], "#8163D6"],
-        title_font={"color": P["tx"], "size": 15, "family": "Inter"},
+        title_font={"color": P["tx"], "size": 15, "family": "JetBrains Mono"},
         margin={"l": 48, "r": 24, "t": 46, "b": 42},
         legend={"bgcolor": "rgba(0,0,0,0)"},
     )
@@ -162,16 +129,21 @@ def _style(fig):
 
 
 def tile(label, value, chip=None, up=True, i=0, tone=None):
-    """One animated glass metric tile (HTML)."""
+    """One operational metric tile (HTML)."""
     chip_html = f"<span class='chip {'up' if up else 'down'}'>{chip}</span>" if chip else ""
     vstyle = f"color:{tone}" if tone else ""
-    return (f"<div class='tile' style='animation-delay:{i*0.05:.2f}s'>"
+    return (f"<div class='tile' data-order='{i}'>"
             f"<div class='lab'>{label}</div>"
             f"<div class='val' style='{vstyle}'>{value}</div>{chip_html}</div>")
 
 
 def tile_grid(tiles):
     st.markdown("<div class='tgrid'>" + "".join(tiles) + "</div>", unsafe_allow_html=True)
+
+
+if workspace_view == "Phone Link":
+    render_phone_link(P)
+    st.stop()
 
 
 def _confusion(records):
@@ -300,6 +272,10 @@ with tabs[0]:
         tile("Avg Reward", f"{result.avg_reward:.3f}",
              chip=_d(result.avg_reward, _b.avg_reward if _b else None),
              up=(_b is None or result.avg_reward >= _b.avg_reward), i=7),
+        tile("Missed Event Rate", f"{result.missed_event_rate:.2f}",
+             up=False, tone=P["bad"], i=8),
+        tile("Censored Intercept", f"{result.censored_avg_intercept_time*1000:.0f} ms",
+             up=False, i=9),
     ])
 
     st.markdown("<div style='height:14px'></div>", unsafe_allow_html=True)

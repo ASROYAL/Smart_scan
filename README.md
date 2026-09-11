@@ -154,6 +154,35 @@ Launch the dashboard:
 streamlit run dashboard/app.py
 ```
 
+Select **Phone Link** in the dashboard sidebar to monitor a paired Android
+phone, iPhone, or other Bluetooth device. On macOS the page reads connection
+state and RSSI from local system telemetry, keeps a rolling signal-strength
+graph, and exports the session as CSV. Because macOS does not expose RSSI for
+every phone connection type, the page also provides a clearly labelled
+presentation mode when a live value is unavailable.
+
+Phone Link uses a 100 ms display refresh with honest sample-age reporting and
+an adjustable 0.1-5 second intake interval for browser heartbeats, Bluetooth
+polling, and the demo source. It
+automatically resumes the last locally selected phone, and keeps the contact
+trace inside the dedicated Phone Link workspace. At 80% quality it enters a
+yellow caution state; at 90% it enters the red **War Mode** training view. Audible alerts are
+operator-armed and can be silenced. Press **ARM AUDIO** once after opening the
+dashboard; this user gesture satisfies Safari and Chrome autoplay rules, after
+which caution and War Mode transitions sound automatically. A phone-driven
+simulation converts the current link quality into the SNR of a synthetic target
+emitter, then runs that signal through the existing IQ, detector, scheduler,
+and evaluator pipeline.
+
+For reliable iPhone and Android demonstrations, choose **Phone browser link**
+and open the displayed local address on the phone while both devices use the
+same network. Try each displayed LAN address if the first is unavailable, then
+use **TEST LOCAL LINK SERVICE** to separate a server problem from a Wi-Fi or
+firewall problem. The phone page sends a heartbeat at the selected intake rate and measures transport
+latency, jitter, freshness, and link quality. It is labelled as a network-link
+measurement rather than Bluetooth RSSI. **Mac Bluetooth RSSI** remains available
+for devices and macOS versions that expose real RSSI telemetry.
+
 ---
 
 ## 4. How it works, step by step
@@ -234,44 +263,29 @@ reproducible from a seed and used identically across schedulers for fair compari
 
 ---
 
-## 8. Honest results
+## 8. Reproducible evaluation
 
-Actual output of `benchmark_schedulers.py --num-bands 60 --steps 800 --seeds 1 2 3`
-(7 schedulers × 9 scenarios × 3 seeds = 189 runs), averaged across all scenarios.
-**`Discovery ratio` counts distinct ground-truth events intercepted** (fixed — it
-previously counted every true-positive scan and inflated to ~1.0):
+The adaptive policy now uses a hard maximum revisit gap, a minimum exploration
+budget, observation-only temporal belief fusion, threat/novelty/coverage utility,
+variable dwell, and explicit revisit recommendations. Older numeric tables are no
+longer presented as current evidence because they predate this policy and their
+checked-in raw artifact covered only 144 of the later documented 189 runs.
 
-| Scheduler | Discovery ratio | Scan efficiency | Avg intercept delay | Coverage | Avg reward |
-|-----------|-----------------|-----------------|---------------------|----------|------------|
-| round_robin | **0.76** | 0.075 | 0.237 s | 1.00 | 0.06 |
-| bandit_ucb | 0.75 | 0.24 | 0.245 s | 1.00 | 0.22 |
-| priority | 0.73 | 0.40 | 0.248 s | 1.00 | 0.38 |
-| random | 0.67 | 0.077 | 0.259 s | 1.00 | 0.06 |
-| **bandit_thompson** | 0.66 | 0.58 | 0.340 s | 1.00 | 0.56 |
-| q_learning | 0.56 | 0.19 | 0.284 s | 0.99 | 0.17 |
-| **adaptive** | 0.21 | **0.64** | 0.276 s | 0.59 | **0.62** |
+Generate the authoritative campaign from the current revision with:
 
-**The honest picture (no metric hides the trade-off now):**
-- **Most distinct emitters found:** `round_robin` and `bandit_ucb` (discovery 0.76 / 0.75)
-  at full coverage (1.00) — sweeping everything finds the most one-off events, but each
-  scan is cheap-yield (efficiency 0.075 / 0.24).
-- **Best efficiency and reward — least wasted effort:** `adaptive` (efficiency **0.64**,
-  reward **0.62**, ≈**8.6× round-robin's 0.075**) and `bandit_thompson` (0.58 / 0.56).
-  They lock onto active emitters and re-intercept them cheaply.
-- **`bandit_thompson` is the strongest all-rounder:** high efficiency *and* reward while
-  keeping full coverage (1.00) and mid-pack discovery (0.66).
-- **`adaptive` is a specialist:** top efficiency and reward, but it concentrates on the
-  bands it believes are active — coverage 0.59 and the lowest discovery (0.21). Great for
-  *staying on* known emitters; weakest for *finding* new ones. (Fastest intercept delay
-  belongs to the exhaustive sweepers here — `round_robin` at 0.237 s — because they revisit
-  every band on a fixed short cycle.)
+```bash
+python scripts/benchmark_schedulers.py --num-bands 60 --steps 800 --seeds 1 2 3
+```
 
-So the choice is genuinely mission-dependent: **Thompson/UCB for balanced search,
-adaptive for maximal efficiency on known activity, round-robin for exhaustive
-coverage.** No numbers are hand-picked — regenerate them with the command above;
-they land in `data/results/benchmark_summary.csv` and `benchmark_ranking.csv`.
+The command now writes raw results, summaries, bootstrap confidence intervals,
+paired adaptive-versus-round-robin differences, a Pareto table, and a JSON manifest
+containing the exact configuration, Python version, Git revision, command, run count,
+and SHA-256 digest of every artifact. Do not publish a benchmark table without its
+matching manifest.
 
----
+The evaluator reports both delay among intercepted events and **mission-censored
+intercept time**, where missed events contribute their remaining time to mission end.
+This prevents a scheduler that finds only a few easy events from appearing fast.
 
 ## 9. Recorded IQ files
 
@@ -399,18 +413,20 @@ reproducible.
 
 ## 14. Limitations
 
-- The simulator uses tone/band-limited-noise emitters, not full digital modulation
-  (QAM/OFDM); the detector is energy-based, not cyclostationary or matched-filter.
-- Discovery delay for always-on sources measures time-to-first-visit, so it is less
-  discriminating than for bursty sources.
-- Reward shaping is intentionally simple and configurable; it is not tuned per
-  scenario.
+- Waveforms and receiver impairments remain research abstractions rather than a
+  calibrated RF propagation and hardware model.
+- Threat scores are observation-derived band-track utilities; emitter identity
+  association across distant frequency hops is not yet solved.
+- `StreamingRFSource` provides a bounded receive-only IQ buffer, calibration hook,
+  timestamps, retuning callback and coarse channelization, but a device-specific
+  SoapySDR/UHD adapter still requires actual hardware validation.
+- The system currently schedules one receiver. `receiver_id` and complete-action
+  metadata prepare the contract for multi-receiver allocation without claiming it.
 
 ## 15. Future extensions
 
-- Cyclostationary / matched-filter detectors; wideband channelization.
-- Q-learning / DQN sequential schedulers (scaffolding for research is isolated so it
-  cannot delay the working baseline).
-- Gradient-boosted or recurrent temporal predictors.
+- Calibrated CFAR, waveform-matched detectors and polyphase wideband channelization.
+- Multi-receiver assignment and conflict-free cooperative scheduling.
+- Cross-band emitter association using pulse, modulation and timing fingerprints.
 - Real SDR `RFSource` adapter for authorized monitoring.
 ```

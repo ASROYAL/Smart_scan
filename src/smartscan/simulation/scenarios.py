@@ -12,6 +12,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from smartscan.core.models import EmitterConfig, EmitterType
+from smartscan.telemetry.phone import quality_to_snr
 
 
 @dataclass
@@ -166,6 +167,54 @@ def scenario_low_snr(
         for i, b in enumerate(active_bands)
     ]
     return Scenario("low_snr", "Low-SNR sources", emitters, duration=10.0)
+
+
+def scenario_phone_training(
+    signal_quality: int,
+    seed: int = 42,
+    num_bands: int = 50,
+    total_bw: float = 1000e6,
+    center: float = 500e6,
+) -> Scenario:
+    """Consented phone-link strength driving a synthetic training emitter.
+
+    The link score configures the simulated signal power. It is never passed to
+    a scheduler; schedulers observe only IQ produced by the RF environment.
+    """
+
+    rng = np.random.default_rng(seed)
+    target_band = int(rng.integers(max(1, num_bands // 5), max(2, 4 * num_bands // 5)))
+    decoy_bands = [int(b) for b in rng.choice(num_bands, size=min(3, num_bands), replace=False)]
+    target = EmitterConfig(
+        emitter_id=0,
+        emitter_type=EmitterType.PERIODIC_BURST,
+        center_frequency=_band_center(target_band, num_bands, total_bw, center),
+        bandwidth=5e6,
+        amplitude=1.0,
+        snr_db=quality_to_snr(signal_quality),
+        period=0.8,
+        duty_cycle=0.35,
+    )
+    decoys = [
+        EmitterConfig(
+            emitter_id=index + 1,
+            emitter_type=EmitterType.RANDOM_BURST,
+            center_frequency=_band_center(band, num_bands, total_bw, center),
+            bandwidth=5e6,
+            amplitude=1.0,
+            snr_db=8.0 + index * 3.0,
+            burst_rate=1.0 + 0.25 * index,
+            burst_duration=0.12,
+        )
+        for index, band in enumerate(decoy_bands)
+        if band != target_band
+    ]
+    return Scenario(
+        "phone_training",
+        f"Phone-link training beacon at {signal_quality}% strength with background activity",
+        [target, *decoys],
+        duration=12.0,
+    )
 
 
 def scenario_mixed(

@@ -102,6 +102,18 @@ class SpectrumStateManager:
 
         # Confidence grows with observation count (more data → more confident estimate)
         state.confidence = float(np.clip(n / (n + 10), 0.0, 1.0))
+        state.novelty_score = float(np.clip(1.0 / np.sqrt(n + 1), 0.0, 1.0))
+        confirmation = min(state.hit_count / 3.0, 1.0)
+        state.track_confidence = float(np.clip(confirmation * state.confidence, 0.0, 1.0))
+        snr_evidence = 1.0 / (1.0 + np.exp(-state.avg_snr_db / 6.0))
+        recurrence_evidence = 1.0 if state.estimated_period else 0.0
+        state.threat_score = float(np.clip(
+            0.45 * state.rolling_activity_prob
+            + 0.35 * snr_evidence
+            + 0.20 * recurrence_evidence,
+            0.0,
+            1.0,
+        ))
 
         # Better predictions: estimate the recurrence period from detection history
         # so the scheduler can time revisits and the evaluator can score intercept

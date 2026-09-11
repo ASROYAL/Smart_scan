@@ -222,6 +222,9 @@ class Evaluator:
         detection_times_by_event = self._match_detections_to_events(records, gt_events)
         delays = metrics.discovery_delays(event_starts, detection_times_by_event)
         mean_delay, median_delay, p95_delay = metrics.delay_statistics(delays)
+        censored_delay, missed_event_rate = metrics.censored_intercept_statistics(
+            event_starts, detection_times_by_event, duration,
+        )
 
         pd = metrics.probability_of_detection(records)
         pfa = metrics.probability_of_false_alarm(records)
@@ -264,6 +267,8 @@ class Evaluator:
             brier_score=brier,
             log_loss=logloss,
             avg_intercept_time_error=intercept_err,
+            missed_event_rate=missed_event_rate,
+            censored_avg_intercept_time=censored_delay,
             wall_clock_seconds=wall_clock_seconds,
             config=config or {},
         )

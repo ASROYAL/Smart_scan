@@ -79,6 +79,9 @@ class ScanDecision(BaseModel):
     priority_score: float = Field(default=0.0)
     reason: str = Field(default="")
     timestamp: float = Field(ge=0, description="simulation time in seconds")
+    receiver_id: int = Field(default=0, ge=0)
+    recommended_revisit_time: float | None = Field(default=None, ge=0)
+    utility_components: dict[str, float] = Field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -134,6 +137,9 @@ class BandState(BaseModel):
     avg_power_db: float = Field(default=-100.0)
     avg_snr_db: float = Field(default=0.0)
     confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    novelty_score: float = Field(default=1.0, ge=0.0, le=1.0)
+    track_confidence: float = Field(default=0.0, ge=0.0, le=1.0)
+    threat_score: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @property
     def center_frequency(self) -> float:
@@ -305,6 +311,8 @@ class ExperimentResult(BaseModel):
         description="binary cross-entropy of predicted probability (lower better)")
     avg_intercept_time_error: float = Field(default=0.0, ge=0,
         description="mean |predicted - actual| next-activity time, seconds")
+    missed_event_rate: float = Field(default=0.0, ge=0, le=1)
+    censored_avg_intercept_time: float = Field(default=0.0, ge=0)
 
     # Extra
     wall_clock_seconds: float = Field(default=0.0, ge=0)

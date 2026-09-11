@@ -26,7 +26,9 @@ def _print(r) -> None:
           f"hit={r.scan_hit_rate:.3f}  disc_ratio={r.activity_discovery_ratio:.3f}  "
           f"eff={r.scan_efficiency:.3f}  PD={r.probability_of_detection:.3f}  "
           f"PFA={r.probability_of_false_alarm:.3f}  "
-          f"avg_intercept={r.avg_discovery_delay*1000:.0f}ms")
+          f"avg_intercept={r.avg_discovery_delay*1000:.0f}ms  "
+          f"censored={r.censored_avg_intercept_time*1000:.0f}ms  "
+          f"missed={r.missed_event_rate:.3f}")
 
 
 def main() -> None:

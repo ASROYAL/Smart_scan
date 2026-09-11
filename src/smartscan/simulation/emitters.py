@@ -54,17 +54,24 @@ class BaseEmitter(ABC):
 
         Returns None if the emitter is inactive or outside the observation band.
         """
-        if not self.is_active(time):
+        dwell_end = time + num_samples / sample_rate
+        intervals = self.activity_intervals(time, dwell_end)
+        if not intervals:
             return None
-
-        emitter_freq = self.get_frequency(time)
-        freq_offset = emitter_freq - center_frequency
-
-        # Check if the emitter falls within the observation bandwidth
-        if abs(freq_offset) > bandwidth / 2:
-            return None
-
-        return self._synthesize(num_samples, sample_rate, freq_offset)
+        output = np.zeros(num_samples, dtype=np.complex128)
+        contributed = False
+        for active_start, active_end, emitter_freq in intervals:
+            freq_offset = emitter_freq - center_frequency
+            if abs(freq_offset) > bandwidth / 2:
+                continue
+            first = max(0, int(np.floor((active_start - time) * sample_rate)))
+            last = min(num_samples, int(np.ceil((active_end - time) * sample_rate)))
+            if last <= first:
+                continue
+            signal = self._synthesize(num_samples, sample_rate, freq_offset)
+            output[first:last] += signal[first:last]
+            contributed = True
+        return output if contributed else None
 
     def _effective_waveform(self) -> WaveformType:
         # Default is a CW tone for every emitter (keeps energy detection tractable

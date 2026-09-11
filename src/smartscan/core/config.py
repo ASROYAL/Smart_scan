@@ -23,6 +23,9 @@ class EnvironmentConfig(BaseModel):
     num_bands: int = Field(default=50, gt=0)
     noise_power_dbm: float = Field(default=-100.0, description="dBm")
     sample_rate: float = Field(default=20e6, gt=0, description="samples/sec")
+    noise_drift_db: float = Field(default=0.0, ge=0, description="slow noise-floor variation")
+    impulsive_noise_probability: float = Field(default=0.0, ge=0, le=1)
+    impulsive_noise_gain_db: float = Field(default=12.0, ge=0)
 
 
 class ReceiverConfig(BaseModel):
@@ -31,6 +34,11 @@ class ReceiverConfig(BaseModel):
     dwell_time: float = Field(default=0.01, gt=0, description="seconds")
     tuning_delay: float = Field(default=0.001, ge=0, description="seconds")
     scan_step: float | None = Field(default=None, description="Hz, defaults to bandwidth")
+    min_dwell_time: float = Field(default=0.002, gt=0)
+    max_dwell_time: float = Field(default=0.02, gt=0)
+    frequency_error_hz: float = Field(default=0.0)
+    gain_error_db: float = Field(default=0.0)
+    adc_bits: int | None = Field(default=None, ge=2, le=32)
 
 
 class DetectorConfig(BaseModel):
@@ -67,6 +75,14 @@ class SchedulerConfig(BaseModel):
         description="penalty for revisiting a just-seen band (over-camping)")
     reward_starvation_bonus_scale: float = Field(default=0.02, ge=0,
         description="bonus for returning to a long-neglected band (coverage recovery)")
+    max_revisit_gap: float = Field(default=0.75, gt=0)
+    min_exploration_fraction: float = Field(default=0.15, ge=0, le=1)
+    utility_activity_weight: float = Field(default=1.0, ge=0)
+    utility_novelty_weight: float = Field(default=0.6, ge=0)
+    utility_threat_weight: float = Field(default=0.8, ge=0)
+    utility_timing_weight: float = Field(default=0.8, ge=0)
+    utility_coverage_weight: float = Field(default=1.2, ge=0)
+    utility_tuning_cost_weight: float = Field(default=0.15, ge=0)
     # Q-learning (reinforcement-learning scheduler)
     q_alpha: float = Field(default=0.2, gt=0, le=1, description="TD learning rate")
     q_gamma: float = Field(default=0.9, ge=0, lt=1, description="discount (multi-step lookahead)")

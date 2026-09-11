@@ -56,6 +56,20 @@ class TestContextVector:
 
 
 class TestAdaptiveScheduler:
+    def test_enforces_revisit_constraint_and_emits_complete_action(self):
+        cfg = SchedulerConfig(max_revisit_gap=0.5, min_exploration_fraction=0.0)
+        sched = AdaptiveScheduler(rx_cfg(), cfg, num_bands=3)
+        states = make_states(3)
+        for state in states:
+            state.last_scan_time = 0.9
+        states[2].last_scan_time = 0.0
+        decision = sched.select_band(states, 1.0)
+        assert decision.band_id == 2
+        assert decision.reason == "hard revisit constraint"
+        assert rx_cfg().min_dwell_time <= decision.dwell_time <= rx_cfg().max_dwell_time
+        assert decision.recommended_revisit_time is not None
+        assert decision.utility_components["coverage"] == 1.0
+
     def test_selects_valid_bands(self):
         sched = AdaptiveScheduler(rx_cfg(), SchedulerConfig(), num_bands=5)
         states = make_states(5)

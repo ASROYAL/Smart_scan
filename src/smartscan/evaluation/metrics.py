@@ -94,6 +94,28 @@ def discovery_delays(
     return delays
 
 
+def censored_intercept_statistics(
+    event_start_times: list[float],
+    detection_times_by_event: dict[int, float],
+    mission_end: float,
+) -> tuple[float, float]:
+    """Return mission-censored mean intercept time and missed-event fraction.
+
+    Undiscovered events contribute their remaining time to mission end, preventing
+    a policy that finds only a few easy events from reporting an artificially low delay.
+    """
+
+    if not event_start_times:
+        return 0.0, 0.0
+    values = [
+        max(0.0, detection_times_by_event[index] - start)
+        if index in detection_times_by_event else max(0.0, mission_end - start)
+        for index, start in enumerate(event_start_times)
+    ]
+    missed = 1.0 - len(detection_times_by_event) / len(event_start_times)
+    return float(np.mean(values)), float(np.clip(missed, 0.0, 1.0))
+
+
 def delay_statistics(delays: list[float]) -> tuple[float, float, float]:
     """Return (mean, median, p95) of discovery delays."""
     if not delays:

@@ -13,6 +13,7 @@ Examples:
 from __future__ import annotations
 
 import argparse
+import hashlib
 from pathlib import Path
 
 import pandas as pd
@@ -60,7 +61,7 @@ def main() -> None:
     rows = []
     for train_name, pdws in trains:
         for sch in [s.value for s in ALL_SCHEDULER_TYPES]:
-            seed = abs(hash(train_name)) % 10000
+            seed = int.from_bytes(hashlib.sha256(train_name.encode()).digest()[:4], "big") % 10000
             r = build_and_run_pdw(cfg, sch, pdws, seed=seed, scenario_name=train_name).result
             rows.append({
                 "train": train_name, "scheduler": r.scheduler_name,

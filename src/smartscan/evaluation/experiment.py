@@ -74,6 +74,7 @@ def build_and_run(
     scenario_name: str,
     seed: int | None = None,
     use_ml_predictor: bool = False,
+    scenario_override: Scenario | None = None,
 ) -> ExperimentOutcome:
     """Build the full system for one (scheduler, scenario) pair and run it."""
     if seed is None:
@@ -84,7 +85,7 @@ def build_and_run(
     center = config.environment.center_frequency
 
     # Scenario defines the emitters
-    scenario: Scenario = get_scenario(
+    scenario: Scenario = scenario_override or get_scenario(
         scenario_name, seed=seed, num_bands=num_bands,
         total_bw=total_bw, center=center,
     )
@@ -95,6 +96,9 @@ def build_and_run(
         noise_power_dbm=scenario.noise_power_dbm,
         sample_rate=config.environment.sample_rate,
         seed=seed,
+        noise_drift_db=config.environment.noise_drift_db,
+        impulsive_noise_probability=config.environment.impulsive_noise_probability,
+        impulsive_noise_gain_db=config.environment.impulsive_noise_gain_db,
     )
     source = SimulatedRFSource(env)
 

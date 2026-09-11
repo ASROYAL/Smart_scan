@@ -22,11 +22,17 @@ class RFEnvironment:
         noise_power_dbm: float = -100.0,
         sample_rate: float = 20e6,
         seed: int = 42,
+        noise_drift_db: float = 0.0,
+        impulsive_noise_probability: float = 0.0,
+        impulsive_noise_gain_db: float = 12.0,
     ) -> None:
         self._noise_power_dbm = noise_power_dbm
         self._sample_rate = sample_rate
         self._seed = seed
         self._rng = np.random.default_rng(seed)
+        self._noise_drift_db = noise_drift_db
+        self._impulsive_noise_probability = impulsive_noise_probability
+        self._impulsive_noise_gain_db = impulsive_noise_gain_db
 
         self._emitters: list[BaseEmitter] = [
             create_emitter(cfg, noise_power_dbm, seed)
@@ -75,7 +81,12 @@ class RFEnvironment:
             time = self._time
 
         # Start with noise
-        samples = generate_awgn(num_samples, self._noise_power_dbm, self._rng)
+        noise_power = self._noise_power_dbm + self._noise_drift_db * np.sin(2 * np.pi * time / 5.0)
+        samples = generate_awgn(num_samples, noise_power, self._rng)
+        if self._rng.random() < self._impulsive_noise_probability:
+            samples += generate_awgn(
+                num_samples, noise_power + self._impulsive_noise_gain_db, self._rng,
+            )
 
         # Add contribution from each active emitter in the observation window
         for emitter in self._emitters:
@@ -138,10 +149,13 @@ class RFEnvironment:
     def is_any_active_in_band(
         self, time: float, freq_start: float, freq_end: float, dwell: float = 0.0,
     ) -> bool:
-        """Is any emitter active in this freq/time window? EVALUATION ONLY.
-
-        ``dwell`` is accepted for interface parity with the PDW environment (whose
-        pulses need interval overlap); for continuous tone emitters the point-in-
-        time check at ``time`` is sufficient, so it is ignored here.
-        """
-        return len(self.get_ground_truth_at(time, freq_start, freq_end)) > 0
+        """Is any emitter active anywhere in the receiver's dwell interval?"""
+        if dwell <= 0:
+            return len(self.get_ground_truth_at(time, freq_start, freq_end)) > 0
+        end = time + dwell
+        for emitter in self._emitters:
+            half_bw = emitter.config.bandwidth / 2
+            for _start, _end, frequency in emitter.activity_intervals(time, end):
+                if freq_end > frequency - half_bw and freq_start < frequency + half_bw:
+                    return True
+        return False

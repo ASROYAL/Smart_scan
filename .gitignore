@@ -19,6 +19,7 @@ htmlcov/
 data/generated/*
 data/results/*
 data/recordings/*
+data/phone_link_preferences.json
 !data/generated/.gitkeep
 !data/results/.gitkeep
 !data/recordings/.gitkeep
@@ -27,3 +28,4 @@ data/recordings/*
 *.sqlite3
 .DS_Store
 *.log
+Smart_scan/

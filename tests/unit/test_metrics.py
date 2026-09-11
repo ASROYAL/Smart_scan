@@ -6,6 +6,14 @@ from smartscan.evaluation import metrics
 from smartscan.evaluation.metrics import ScanRecord
 
 
+def test_censored_intercept_penalizes_undiscovered_events():
+    mean, missed = metrics.censored_intercept_statistics(
+        [0.0, 1.0], {0: 0.2}, mission_end=3.0,
+    )
+    assert mean == pytest.approx(1.1)
+    assert missed == pytest.approx(0.5)
+
+
 def rec(scan=0, t=0.0, band=0, detected=False, active=False, reward=0.0):
     return ScanRecord(
         scan_number=scan, timestamp=t, band_id=band,

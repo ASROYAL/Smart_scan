@@ -10,10 +10,23 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
+import platform
+import subprocess
+import sys
+from datetime import UTC, datetime
 from pathlib import Path
 
 from smartscan.core.config import load_config
-from smartscan.evaluation.benchmark import run_benchmark, scheduler_ranking, summarize
+from smartscan.evaluation.benchmark import (
+    bootstrap_confidence_intervals,
+    paired_seed_differences,
+    pareto_front,
+    run_benchmark,
+    scheduler_ranking,
+    summarize,
+)
 from smartscan.schedulers.factory import ALL_SCHEDULER_TYPES
 from smartscan.simulation.scenarios import ALL_SCENARIOS
 
@@ -63,6 +76,38 @@ def main() -> None:
     ranking_path = out_dir / "benchmark_ranking.csv"
     ranking.to_csv(ranking_path, index=False)
 
+    ci_path = out_dir / "benchmark_confidence_intervals.csv"
+    bootstrap_confidence_intervals(df).to_csv(ci_path, index=False)
+    pareto_path = out_dir / "benchmark_pareto.csv"
+    pareto_front(summary).to_csv(pareto_path, index=False)
+    paired_path = out_dir / "benchmark_adaptive_vs_round_robin.csv"
+    paired_seed_differences(df, "adaptive").to_csv(paired_path, index=False)
+
+    paths = [raw_path, summary_path, ranking_path, ci_path, pareto_path, paired_path]
+    try:
+        revision = subprocess.run(
+            ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True,
+        ).stdout.strip()
+    except (OSError, subprocess.CalledProcessError):
+        revision = "unavailable"
+    manifest = {
+        "schema_version": 1,
+        "generated_at_utc": datetime.now(UTC).isoformat(),
+        "command": [sys.executable, *sys.argv],
+        "git_revision": revision,
+        "python": platform.python_version(),
+        "config": config.model_dump(mode="json"),
+        "scenarios": args.scenarios or list(ALL_SCENARIOS),
+        "schedulers": args.schedulers or [s.value for s in ALL_SCHEDULER_TYPES],
+        "seeds": args.seeds,
+        "run_count": len(df),
+        "artifacts": {
+            path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in paths
+        },
+    }
+    manifest_path = out_dir / "benchmark_manifest.json"
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
     import pandas as pd
     pd.set_option("display.max_rows", None)
     pd.set_option("display.width", 200)
@@ -81,6 +126,7 @@ def main() -> None:
     print(f"\nRaw results:     {raw_path}")
     print(f"Summary table:   {summary_path}")
     print(f"Ranking table:   {ranking_path}")
+    print(f"Campaign manifest: {manifest_path}")
 
 
 if __name__ == "__main__":

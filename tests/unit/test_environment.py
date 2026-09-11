@@ -60,6 +60,18 @@ class TestEnvironmentBasic:
 
 
 class TestEnvironmentGroundTruth:
+    def test_dwell_interval_detects_burst_that_starts_after_scan_start(self):
+        emitter = EmitterConfig(
+            emitter_id=0, emitter_type=EmitterType.PERIODIC_BURST,
+            center_frequency=100e6, bandwidth=5e6, amplitude=1.0,
+            snr_db=20.0, period=1.0, duty_cycle=0.1,
+        )
+        env = make_env(emitters=[emitter])
+        assert not env.is_any_active_in_band(0.95, 90e6, 110e6)
+        assert env.is_any_active_in_band(0.95, 90e6, 110e6, dwell=0.1)
+        samples = env.generate_samples(100e6, 20e6, 2000, time=0.99995)
+        assert np.mean(np.abs(samples[-500:]) ** 2) > np.mean(np.abs(samples[:500]) ** 2)
+
     def test_active_emitters(self):
         env = make_env()
         active = env.get_active_emitters(0.0)

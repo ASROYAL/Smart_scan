@@ -76,25 +76,37 @@ class Receiver:
             dwell_time = self._config.dwell_time
 
         # Tuning delay applies when changing frequency
+        actual_frequency = center_frequency + self._config.frequency_error_hz
         needs_tuning = (
             self._current_frequency is None
-            or abs(self._current_frequency - center_frequency) > 1e-3
+            or abs(self._current_frequency - actual_frequency) > 1e-3
         )
         if needs_tuning:
             self._total_tuning_time += self._config.tuning_delay
             self._advance_source_clock(self._config.tuning_delay)
-            self._source.tune(center_frequency)
-            self._current_frequency = center_frequency
+            self._source.tune(actual_frequency)
+            self._current_frequency = actual_frequency
 
         # Number of samples determined by sample rate and dwell time
         num_samples = int(self._config.sample_rate * dwell_time)
         num_samples = max(num_samples, 1)
 
         samples, meta = self._source.read_samples(
-            center_frequency=center_frequency,
+            center_frequency=actual_frequency,
             bandwidth=bandwidth,
             num_samples=num_samples,
         )
+
+        if self._config.gain_error_db:
+            samples = samples * (10.0 ** (self._config.gain_error_db / 20.0))
+        if self._config.adc_bits is not None and len(samples):
+            levels = 2 ** (self._config.adc_bits - 1) - 1
+            real_part = np.real(samples)
+            imag_part = np.imag(samples)
+            peak = max(float(np.max(np.abs(real_part))), float(np.max(np.abs(imag_part))), 1e-15)
+            real = np.round(real_part / peak * levels) / levels
+            imag = np.round(imag_part / peak * levels) / levels
+            samples = (real + 1j * imag) * peak
 
         self._total_dwell_time += dwell_time
         self._advance_source_clock(dwell_time)
