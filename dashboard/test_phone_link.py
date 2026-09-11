@@ -5,6 +5,7 @@ from datetime import UTC, datetime
 from phone_link import (
     _response_ladder,
     assess_training_contact,
+    build_training_bridge_input,
     parse_system_profiler,
     signal_quality,
 )
@@ -118,5 +119,27 @@ def test_training_assessment_maps_other_devices_without_claiming_real_identifica
 
     assert watch.object_type == "SURVEILLANCE AIRCRAFT"
     assert unknown.object_type == "UNIDENTIFIED AIRBORNE CONTACT"
-    assert "independent sensors" in _response_ladder(unknown)[1]
-    assert "Do not recommend or simulate weapon release" in _response_ladder(unknown)[-1]
+    assert "independent sensors" in _response_ladder(unknown)[1][2]
+    assert _response_ladder(unknown)[-1][1] == "NO WEAPON RECOMMENDATION"
+
+
+def test_training_bridge_rejects_zero_or_offline_input():
+    snapshot = _critical_snapshot("iPhone")
+    snapshot["quality"] = 0
+    snapshot["link_state"] = LinkState.OFFLINE
+    snapshot["source"] = "PHONE WEB"
+
+    bridge = build_training_bridge_input(snapshot)
+
+    assert bridge.valid is False
+    assert bridge.synthetic_snr_db == -8.0
+    assert "NO LIVE TELEMETRY" in bridge.status
+    assert bridge.basis.startswith("NETWORK TRANSPORT PROXY")
+
+
+def test_training_bridge_captures_valid_demo_proxy():
+    bridge = build_training_bridge_input(_critical_snapshot("TRAINING PHONE"))
+
+    assert bridge.valid is True
+    assert bridge.quality == 94
+    assert bridge.synthetic_snr_db == 27.72

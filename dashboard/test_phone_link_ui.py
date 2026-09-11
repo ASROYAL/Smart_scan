@@ -40,6 +40,21 @@ WAR_CLEAR_APP = WAR_APP.replace(
     '"alert": AlertLevel.NORMAL',
 ).replace('"quality": 95', '"quality": 72')
 
+OFFLINE_TRAINING_APP = """
+import sys
+sys.path.insert(0, "dashboard")
+import phone_link
+from smartscan.telemetry.phone import AlertLevel, LinkState
+
+snapshot = {
+    "name": "NO DEVICE", "rssi_dbm": None, "quality": 0,
+    "quality_label": "NO DATA", "link_state": LinkState.OFFLINE,
+    "alert": AlertLevel.NORMAL, "sample_age": None, "source": "PHONE WEB", "error": None,
+}
+phone_link._poll_phone = lambda: snapshot
+phone_link._render_simulation_console()
+"""
+
 
 def test_phone_console_renders_without_exception():
     app = AppTest.from_string(APP, default_timeout=15).run()
@@ -76,3 +91,15 @@ def test_war_mode_requires_operator_authorization_after_signal_clears():
         button for button in app.button if button.label == "AUTHORIZE EXIT FROM WAR MODE"
     )
     assert not exit_button.disabled
+
+
+def test_signal_driven_run_blocks_zero_percent_offline_input():
+    app = AppTest.from_string(OFFLINE_TRAINING_APP, default_timeout=15).run()
+
+    assert not app.exception
+    assert "TELEMETRY INPUT=0%" in app.code[0].value
+    assert "NO LIVE TELEMETRY" in app.code[0].value
+    run_button = next(
+        button for button in app.button if button.label == "EXECUTE PHONE-DRIVEN SIMULATION"
+    )
+    assert run_button.disabled

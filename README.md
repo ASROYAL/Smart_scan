@@ -183,9 +183,13 @@ air-traffic deconfliction, and human command authorization. Audible alerts are
 operator-armed and can be silenced. Press **ARM AUDIO** once after opening the
 dashboard; this user gesture satisfies Safari and Chrome autoplay rules, after
 which caution and War Mode transitions sound automatically. A phone-driven
-simulation converts the current link quality into the SNR of a synthetic target
-emitter, then runs that signal through the existing IQ, detector, scheduler,
-and evaluator pipeline.
+simulation captures the current valid link quality when the operator starts a
+run, records its source and timestamp, and converts it into the SNR of a synthetic
+target emitter using `SNR = -8 + 0.38 × quality`. It then runs that signal through
+the existing IQ, detector, scheduler, and evaluator pipeline. A zero value means
+no usable telemetry and blocks the run instead of silently creating a weakest-case
+emitter. Browser-link quality is explicitly labelled as a latency/jitter/freshness
+training proxy; it is not RF power, distance, direction, or target identity.
 
 For reliable iPhone and Android demonstrations, choose **Phone browser link**
 and open the displayed local address on the phone while both devices use the

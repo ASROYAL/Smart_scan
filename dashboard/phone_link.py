@@ -80,6 +80,18 @@ class ContactAssessment:
     evidence: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class TrainingBridgeInput:
+    """Immutable description of the telemetry value driving a simulation."""
+
+    quality: int
+    synthetic_snr_db: float
+    source: str
+    basis: str
+    valid: bool
+    status: str
+
+
 def _as_bool(value: Any) -> bool:
     if isinstance(value, bool):
         return value
@@ -444,6 +456,35 @@ def assess_training_contact(
     )
 
 
+def build_training_bridge_input(snapshot: dict[str, Any]) -> TrainingBridgeInput:
+    """Validate and label the phone-link value used to configure synthetic SNR."""
+
+    quality = max(0, min(100, int(snapshot.get("quality", 0))))
+    source = str(snapshot.get("source", "UNKNOWN"))
+    link_state = snapshot.get("link_state", LinkState.OFFLINE)
+    if source == "PHONE WEB":
+        basis = "NETWORK TRANSPORT PROXY (LATENCY / JITTER / FRESHNESS)"
+    elif source == "MAC BT":
+        basis = "BLUETOOTH RSSI-DERIVED PROXY"
+    else:
+        basis = "CONTROLLED DEMO PROXY"
+    valid = link_state != LinkState.OFFLINE and quality > 0
+    if valid:
+        status = "VALID TRAINING INPUT"
+    elif link_state == LinkState.OFFLINE:
+        status = "NO LIVE TELEMETRY — CONNECT A DEVICE OR SELECT DEMO SIGNAL"
+    else:
+        status = "NO MEASURABLE SIGNAL — SIMULATION BLOCKED"
+    return TrainingBridgeInput(
+        quality=quality,
+        synthetic_snr_db=quality_to_snr(quality),
+        source=source,
+        basis=basis,
+        valid=valid,
+        status=status,
+    )
+
+
 def _alert_css(alert: AlertLevel) -> str:
     color = {
         AlertLevel.NORMAL: "#2cff8f",
@@ -482,13 +523,14 @@ def render_alarm_controller() -> None:
         <script>
         const statusUrl={json.dumps(status_url)}; let ctx=null,armed=false,muted=false;
         let last='NORMAL',lastTone=0;
-        function tone(freq,duration,delay=0){{if(!armed||muted||!ctx)return;
-          setTimeout(()=>{{const o=ctx.createOscillator(),g=ctx.createGain();o.frequency.value=freq;
+        function tone(freq,duration,delay=0,wave='square'){{if(!armed||muted||!ctx)return;
+          setTimeout(()=>{{const o=ctx.createOscillator(),g=ctx.createGain();o.type=wave;o.frequency.value=freq;
           g.gain.setValueAtTime(.0001,ctx.currentTime);g.gain.exponentialRampToValueAtTime(.22,ctx.currentTime+.015);
           g.gain.exponentialRampToValueAtTime(.0001,ctx.currentTime+duration);o.connect(g);g.connect(ctx.destination);
           o.start();o.stop(ctx.currentTime+duration+.02)}},delay)}}
-        function warn(level){{if(level==='WAR MODE'){{tone(920,.16);tone(690,.16,210);tone(920,.2,420)}}
-          else if(level==='CAUTION'){{tone(620,.18)}}}}
+        function warn(level){{if(level==='WAR MODE'){{tone(1480,.12);tone(1880,.12,150);
+          tone(1480,.12,300);tone(2100,.22,450,'sawtooth')}}
+          else if(level==='CAUTION'){{tone(880,.16,0,'sine');tone(1120,.16,210,'sine')}}}}
         document.getElementById('arm').onclick=async()=>{{ctx=ctx||new AudioContext();await ctx.resume();
           armed=true;muted=false;tone(760,.12);document.getElementById('alarmState').textContent='ARMED // AUTO'}};
         document.getElementById('mute').onclick=()=>{{muted=true;
@@ -496,7 +538,7 @@ def render_alarm_controller() -> None:
         setInterval(async()=>{{try{{const r=await fetch(statusUrl,{{cache:'no-store'}}),s=await r.json();
           document.getElementById('alarmState').textContent=(muted?'SILENCED':armed?'ARMED':'DISARMED')+' // '+s.alert;
           const now=Date.now();if(s.alert!==last){{warn(s.alert);last=s.alert;lastTone=now}}
-          if(s.alert==='WAR MODE'&&now-lastTone>1800){{warn(s.alert);lastTone=now}}
+          if(s.alert==='WAR MODE'&&now-lastTone>1400){{warn(s.alert);lastTone=now}}
         }}catch(e){{document.getElementById('alarmState').textContent='WARNING BUS OFFLINE'}}}},100);
         </script>
         """,
@@ -663,22 +705,54 @@ def _war_confidence_gauge(assessment: ContactAssessment, quality: int) -> go.Fig
     return fig
 
 
-def _response_ladder(assessment: ContactAssessment) -> tuple[str, ...]:
-    """Return high-level, human-authorized defensive training recommendations."""
+def _response_ladder(assessment: ContactAssessment) -> tuple[tuple[str, str, str], ...]:
+    """Return prioritized, human-authorized defensive training recommendations."""
 
     contact_step = {
-        "DRONE FORMATION": "Task counter-UAS surveillance team to corroborate the formation.",
-        "FIGHTER AIRCRAFT": "Cue authorized air-defence surveillance for an independent track.",
-        "SURVEILLANCE AIRCRAFT": "Check airspace authorization and monitor collection behavior.",
-        "UNIDENTIFIED AIRBORNE CONTACT": "Keep the contact unclassified until independent sensors agree.",
+        "DRONE FORMATION": (
+            "CORROBORATE UAS PATTERN",
+            "Task authorized counter-UAS surveillance to verify whether multiple tracks exist.",
+        ),
+        "FIGHTER AIRCRAFT": (
+            "CORROBORATE AIR TRACK",
+            "Cue authorized air-defence surveillance for range, bearing, altitude and velocity.",
+        ),
+        "SURVEILLANCE AIRCRAFT": (
+            "VERIFY AIRSPACE STATUS",
+            "Check authorization and monitor the independently observed flight profile.",
+        ),
+        "UNIDENTIFIED AIRBORNE CONTACT": (
+            "RETAIN UNKNOWN STATUS",
+            "Keep the contact unclassified until independent sensors agree.",
+        ),
     }[assessment.object_type]
     return (
-        "Maintain passive custody; do not treat phone-link strength as target identification.",
-        contact_step,
-        "Request radar and IFF corroboration through authorized Indian air-defence command channels.",
-        "Deconflict with civil air-traffic information and friendly-force tracks.",
-        "Escalate to the human command authority for rules-of-engagement decisions.",
-        "Do not recommend or simulate weapon release from this single uncalibrated sensor.",
+        (
+            "IMMEDIATE",
+            "MAINTAIN PASSIVE CUSTODY",
+            "Preserve observations and track continuity without transmitting toward the contact.",
+        ),
+        ("IMMEDIATE", contact_step[0], contact_step[1]),
+        (
+            "PRIORITY",
+            "REQUEST RADAR + IFF CORRELATION",
+            "Use authorized Indian air-defence command channels; this proxy supplies no position.",
+        ),
+        (
+            "PRIORITY",
+            "DECONFLICT AIRSPACE",
+            "Compare civil air-traffic, friendly-force and planned-activity tracks.",
+        ),
+        (
+            "COMMAND",
+            "ESCALATE VERIFIED TRACK",
+            "Send the evidence package and uncertainty to human command authority for a decision.",
+        ),
+        (
+            "RESTRICTION",
+            "NO WEAPON RECOMMENDATION",
+            "A single uncalibrated phone proxy cannot support target identification or weapon release.",
+        ),
     )
 
 
@@ -742,7 +816,8 @@ def _render_war_contact() -> None:
             unsafe_allow_html=True,
         )
         st.code(
-            f"CONTACT={safe_name}\nLINK={snapshot['link_state'].value}\nRSSI={rssi_text}\n"
+            f"CONTACT={assessment.object_type}\nTELEMETRY_DEVICE={safe_name}\n"
+            f"LINK={snapshot['link_state'].value}\nRSSI={rssi_text}\n"
             f"MEAN_QUALITY={assessment.mean_quality:.1f}%\nVOLATILITY={assessment.volatility:.1f}\n"
             f"TRACK={assessment.track_state}",
             language=None,
@@ -767,25 +842,37 @@ def _render_war_contact() -> None:
         )
         st.markdown("### RECOMMENDED RESPONSE LADDER")
         st.markdown(
-            '<div class="war-panel">'
-            + "<br>".join(
-                f"<b>{index:02d}</b> // {html.escape(step)}"
-                for index, step in enumerate(_response_ladder(assessment), start=1)
+            '<div class="response-grid">'
+            + "".join(
+                '<div class="response-step">'
+                f'<span>{index:02d} // {html.escape(priority)}</span>'
+                f'<b>{html.escape(action)}</b><p>{html.escape(rationale)}</p></div>'
+                for index, (priority, action, rationale) in enumerate(
+                    _response_ladder(assessment), start=1
+                )
             )
             + "</div>",
             unsafe_allow_html=True,
         )
         st.markdown("### SIGNAL-DRIVEN THREAT MODEL")
+        bridge = build_training_bridge_input(snapshot)
         st.caption(
-            "CURRENT LINK QUALITY SETS SYNTHETIC EMITTER SNR; THE SCHEDULER STILL SEES IQ ONLY"
+            "TELEMETRY PROXY SETS SYNTHETIC EMITTER SNR; THE SCHEDULER STILL SEES IQ ONLY"
         )
-        if st.button("RUN CURRENT CONTACT MODEL", width="stretch"):
+        st.code(
+            f"INPUT={bridge.quality}%  SOURCE={bridge.source}\nBASIS={bridge.basis}\n"
+            f"SYNTHETIC_SNR={bridge.synthetic_snr_db:.1f}dB  STATUS={bridge.status}",
+            language=None,
+        )
+        if st.button(
+            "RUN CURRENT CONTACT MODEL", width="stretch", disabled=not bridge.valid
+        ):
             with st.spinner("RUNNING 250-SCAN OFFLINE CONTACT MODEL..."):
                 config = load_config(str(ROOT / "config" / "default.yaml"))
                 config.simulation.num_steps = 250
                 config.simulation.seed = 42
                 scenario = scenario_phone_training(
-                    int(snapshot["quality"]),
+                    bridge.quality,
                     seed=42,
                     num_bands=config.environment.num_bands,
                     total_bw=config.environment.total_bandwidth,
@@ -798,7 +885,8 @@ def _render_war_contact() -> None:
                     seed=42,
                     scenario_override=scenario,
                 )
-                st.session_state["war_training_quality"] = int(snapshot["quality"])
+                st.session_state["war_training_quality"] = bridge.quality
+                st.session_state["war_training_source"] = bridge.source
         war_outcome = st.session_state.get("war_training_outcome")
         if war_outcome is not None:
             result = war_outcome.result
@@ -881,6 +969,11 @@ def _render_war_mode() -> None:
           .war-facts div {background:#090000;border:1px solid #702020;padding:12px;min-height:68px;}
           .war-facts span {display:block;color:#d77;font-size:.65rem;letter-spacing:.06em;margin-bottom:7px;}
           .war-facts b {display:block;color:#fff;font-size:.92rem;line-height:1.25;word-break:normal;}
+          .response-grid {display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px;}
+          .response-step {background:#090000;border:1px solid #702020;border-left:4px solid #e22;padding:10px;}
+          .response-step span {display:block;color:#e77;font-size:.6rem;letter-spacing:.08em;margin-bottom:5px;}
+          .response-step b {display:block;color:#fff;font-size:.78rem;line-height:1.25;}
+          .response-step p {color:#d8baba;font-size:.68rem;line-height:1.35;margin:6px 0 0;}
           div[data-testid="stMetric"] {padding:10px;}[data-testid="stMetricValue"] {color:#fff !important;
             font-size:1rem !important;white-space:normal !important;line-height:1.2 !important;}
           [data-testid="stMetricLabel"] p {font-size:.65rem !important;white-space:normal !important;}
@@ -950,32 +1043,45 @@ def _render_live_detail() -> None:
         )
 
 
+@st.fragment(run_every=1.0)
 def _render_simulation_console() -> None:
     st.markdown("### SIGNAL-DRIVEN TRAINING RUN")
     st.caption(
-        "Current phone strength configures a synthetic emitter. The scheduler receives only "
-        "generated IQ and must discover it through the normal scan pipeline."
+        "The latest valid telemetry proxy is captured when RUN is pressed and converted into "
+        "synthetic emitter SNR. Generated IQ then passes through the real detector and scheduler."
     )
     a, b, c, d = st.columns(4)
     scheduler = a.selectbox("SCHEDULER", [item.value for item in SchedulerType], index=5)
     detector = b.selectbox("DETECTOR", ["energy", "matched_filter", "cyclostationary"])
     steps = c.select_slider("SCAN STEPS", options=[100, 250, 500, 800, 1200], value=500)
     seed = int(d.number_input("SEED", value=42, step=1))
-    snapshot = st.session_state.get("phone_snapshot") or _poll_phone()
-    quality = int(snapshot["quality"])
+    snapshot = _poll_phone()
+    bridge = build_training_bridge_input(snapshot)
     st.code(
-        f"INPUT LINK={quality}%  SOURCE={snapshot['source']}  "
-        f"ALERT={snapshot['alert'].value}  DISPLAY REFRESH=100ms",
+        f"TELEMETRY INPUT={bridge.quality}%  SOURCE={bridge.source}  "
+        f"SYNTHETIC SNR={bridge.synthetic_snr_db:.1f}dB\n"
+        f"BASIS={bridge.basis}\nSTATUS={bridge.status}  INPUT REFRESH=1s",
         language=None,
     )
-    if st.button("EXECUTE PHONE-DRIVEN SIMULATION", type="primary", width="stretch"):
+    if not bridge.valid:
+        st.warning(
+            "A 0% value means no usable telemetry was received. Connect the browser link, use a "
+            "Bluetooth device that exposes RSSI, or select Demo signal before running."
+        )
+    if st.button(
+        "EXECUTE PHONE-DRIVEN SIMULATION",
+        type="primary",
+        width="stretch",
+        disabled=not bridge.valid,
+    ):
         with st.spinner("EXECUTING SCAN MISSION..."):
+            captured_at = datetime.now().astimezone().isoformat(timespec="milliseconds")
             config = load_config(str(ROOT / "config" / "default.yaml"))
             config.simulation.num_steps = steps
             config.simulation.seed = seed
             config.detector.detector_type = DetectorType(detector)
             scenario = scenario_phone_training(
-                quality,
+                bridge.quality,
                 seed=seed,
                 num_bands=config.environment.num_bands,
                 total_bw=config.environment.total_bandwidth,
@@ -988,11 +1094,24 @@ def _render_simulation_console() -> None:
                 seed=seed,
                 scenario_override=scenario,
             )
-            st.session_state["phone_training_quality"] = quality
+            st.session_state["phone_training_input"] = {
+                "quality": bridge.quality,
+                "synthetic_snr_db": bridge.synthetic_snr_db,
+                "source": bridge.source,
+                "basis": bridge.basis,
+                "captured_at": captured_at,
+            }
 
     outcome = st.session_state.get("phone_training_outcome")
     if outcome is None:
         return
+    captured = st.session_state["phone_training_input"]
+    st.code(
+        f"RUN INPUT LOCKED // {captured['captured_at']}\n"
+        f"{captured['source']} {captured['quality']}% -> {captured['synthetic_snr_db']:.1f}dB "
+        f"SYNTHETIC SNR",
+        language=None,
+    )
     result = outcome.result
     columns = st.columns(7)
     columns[0].metric("DETECTION PD", f"{result.probability_of_detection:.3f}")
@@ -1031,7 +1150,7 @@ def _render_simulation_console() -> None:
         )
     )
     fig.update_layout(
-        title=f"SCAN / DETECTION MAP · PHONE INPUT {st.session_state['phone_training_quality']}%",
+        title=f"SCAN / DETECTION MAP · CAPTURED PROXY {captured['quality']}%",
         template="plotly_dark",
         paper_bgcolor="#030806",
         plot_bgcolor="#030806",
