@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import html
 import json
 import math
 import platform
@@ -60,6 +61,20 @@ class BluetoothDevice:
         suffix = self.address[-5:] if self.address else "LOCAL"
         state = "LIVE" if self.rssi_dbm is not None else ("ACTIVE" if self.connected else "PAIRED")
         return f"{self.name} · {suffix} · {state}"
+
+
+@dataclass(frozen=True)
+class ContactAssessment:
+    """Observation-derived training hypothesis for the War Mode display."""
+
+    object_type: str
+    confidence: int
+    track_state: str
+    motion: str
+    volatility: float
+    mean_quality: float
+    recommendation: str
+    evidence: tuple[str, ...]
 
 
 def _as_bool(value: Any) -> bool:
@@ -160,11 +175,14 @@ def _load_preferences() -> None:
     preferences: dict[str, Any] = {}
     with contextlib.suppress(FileNotFoundError, OSError, json.JSONDecodeError):
         preferences = json.loads(PREFERENCES_PATH.read_text(encoding="utf-8"))
-    st.session_state.setdefault("phone_source", preferences.get("source", "Phone browser link"))
+    stored_source = preferences.get("source", "Phone browser link")
+    st.session_state.setdefault("phone_source_saved", stored_source)
+    st.session_state.setdefault("phone_source", stored_source)
     st.session_state.setdefault("phone_device_address", preferences.get("address", ""))
     st.session_state.setdefault("phone_device_name", preferences.get("name", "AUTO SELECT"))
     requested_interval = float(preferences.get("intake_interval", 0.1))
     selected_interval = min(INTAKE_INTERVALS, key=lambda value: abs(value - requested_interval))
+    st.session_state.setdefault("phone_intake_interval_saved", selected_interval)
     st.session_state.setdefault("phone_intake_interval", selected_interval)
     st.session_state.setdefault("phone_monitoring", True)
     st.session_state.setdefault("phone_alert_memory", AlertMemory())
@@ -174,11 +192,19 @@ def _load_preferences() -> None:
 
 
 def _save_preferences() -> None:
+    source = st.session_state.get(
+        "phone_source", st.session_state.get("phone_source_saved", "Phone browser link")
+    )
+    intake_interval = st.session_state.get(
+        "phone_intake_interval", st.session_state.get("phone_intake_interval_saved", 0.1)
+    )
+    st.session_state["phone_source_saved"] = source
+    st.session_state["phone_intake_interval_saved"] = intake_interval
     payload = {
-        "source": st.session_state.get("phone_source", "Phone browser link"),
+        "source": source,
         "address": st.session_state.get("phone_device_address", ""),
         "name": st.session_state.get("phone_device_name", "AUTO SELECT"),
-        "intake_interval": st.session_state.get("phone_intake_interval", 0.1),
+        "intake_interval": intake_interval,
     }
     try:
         PREFERENCES_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -232,8 +258,14 @@ def _poll_phone() -> dict[str, Any]:
         return snapshot
 
     now = time.monotonic()
-    source = st.session_state.get("phone_source", "Phone browser link")
-    intake_interval = float(st.session_state.get("phone_intake_interval", 0.1))
+    source = st.session_state.get(
+        "phone_source", st.session_state.get("phone_source_saved", "Phone browser link")
+    )
+    intake_interval = float(
+        st.session_state.get(
+            "phone_intake_interval", st.session_state.get("phone_intake_interval_saved", 0.1)
+        )
+    )
     if st.session_state.get("phone_alert_source") != source:
         st.session_state["phone_alert_memory"] = AlertMemory()
         st.session_state["phone_alert_source"] = source
@@ -350,6 +382,57 @@ def _trend(history: list[dict[str, Any]]) -> str:
     return "STABLE"
 
 
+def assess_training_contact(
+    snapshot: dict[str, Any], history: list[dict[str, Any]]
+) -> ContactAssessment:
+    """Fuse recent link observations into an explicitly simulated contact assessment.
+
+    The demo maps a phone/browser contact to a fighter aircraft and AirPods to a
+    drone formation. This is scenario configuration, not RF object recognition.
+    """
+
+    recent = history[-30:]
+    values = [float(row.get("quality", 0)) for row in recent]
+    mean_quality = sum(values) / len(values) if values else float(snapshot.get("quality", 0))
+    volatility = float(pd.Series(values).std()) if len(values) > 1 else 0.0
+    if math.isnan(volatility):
+        volatility = 0.0
+    name = str(snapshot.get("name", "UNKNOWN CONTACT"))
+    object_type = "DRONE FORMATION" if "airpod" in name.lower() else "FIGHTER AIRCRAFT"
+    motion = _trend(history)
+    freshness = snapshot.get("sample_age")
+    freshness_score = 18 if freshness is not None and float(freshness) <= 2.0 else 7
+    sample_score = min(24, len(values) * 2)
+    stability_score = max(0, round(18 - min(volatility, 18)))
+    strength_score = round(min(35, max(0, mean_quality - 60) * 0.875))
+    confidence = min(97, max(32, freshness_score + sample_score + stability_score + strength_score))
+    if motion == "APPROACHING":
+        track_state = "CLOSING / PRIORITY TRACK"
+        recommendation = "Maintain continuous track and execute defensive intercept simulation."
+    elif motion == "RECEDING":
+        track_state = "OPENING / MONITOR"
+        recommendation = "Preserve track continuity and verify the contact is leaving the sector."
+    else:
+        track_state = "HOLDING / HIGH PROXIMITY"
+        recommendation = "Maintain custody and run identification checks against prior observations."
+    evidence = (
+        f"Scenario identity rule: {name} -> {object_type}",
+        f"{len(values)} recent observations; mean link quality {mean_quality:.1f}%",
+        f"Observed motion {motion.lower()}; signal volatility {volatility:.1f} points",
+        "Classification is a local training hypothesis; no ground-truth emitter label was used.",
+    )
+    return ContactAssessment(
+        object_type=object_type,
+        confidence=confidence,
+        track_state=track_state,
+        motion=motion,
+        volatility=volatility,
+        mean_quality=mean_quality,
+        recommendation=recommendation,
+        evidence=evidence,
+    )
+
+
 def _alert_css(alert: AlertLevel) -> str:
     color = {
         AlertLevel.NORMAL: "#2cff8f",
@@ -431,7 +514,7 @@ def _chart(history: list[dict[str, Any]]) -> go.Figure:
             )
         )
     fig.add_hline(y=80, line_color="#ffd400", line_dash="dash", annotation_text="CAUTION 80%")
-    fig.add_hline(y=90, line_color="#ff2020", line_dash="dash", annotation_text="WAR MODE 90%")
+    fig.add_hline(y=90, line_color="#ff2020", line_dash="dash", annotation_text="WAR MODE >90%")
     fig.update_layout(
         title="CONTACT SIGNAL // LIVE TRACE",
         template="plotly_dark",
@@ -447,9 +530,195 @@ def _chart(history: list[dict[str, Any]]) -> go.Figure:
     return fig
 
 
+def _war_chart(history: list[dict[str, Any]]) -> go.Figure:
+    frame = pd.DataFrame(history[-180:])
+    fig = go.Figure()
+    if not frame.empty:
+        fig.add_trace(
+            go.Scatter(
+                x=frame["time"],
+                y=frame["quality"],
+                mode="lines+markers",
+                line={"color": "#ff3434", "width": 3},
+                marker={"color": "#ffd0d0", "size": 4},
+                fill="tozeroy",
+                fillcolor="rgba(255,20,20,.16)",
+                hovertemplate="%{x|%H:%M:%S.%L}<br>QUALITY %{y}%<extra></extra>",
+            )
+        )
+    fig.add_hrect(y0=90, y1=100, fillcolor="rgba(255,0,0,.13)", line_width=0)
+    fig.add_hline(y=90, line_color="#ff5b5b", line_dash="dash", annotation_text="WAR >90%")
+    fig.update_layout(
+        title="CONTACT CUSTODY // LIVE SIGNAL HISTORY",
+        template="plotly_dark",
+        paper_bgcolor="#050000",
+        plot_bgcolor="#080000",
+        font={"color": "#ffd7d7", "family": "JetBrains Mono"},
+        margin={"l": 52, "r": 18, "t": 52, "b": 38},
+        height=335,
+        showlegend=False,
+        yaxis={"title": "QUALITY %", "range": [0, 102], "gridcolor": "#3b1111"},
+        xaxis={"title": "LOCAL TIME", "gridcolor": "#3b1111"},
+    )
+    return fig
+
+
+def _record_training_response(action: str, snapshot: dict[str, Any]) -> None:
+    """Record a harmless local response simulation for operator review."""
+
+    history = st.session_state.setdefault("war_response_log", [])
+    result = {
+        "SIMULATE TRACK LOCK": "TRACK QUALITY VERIFIED // CUSTODY MAINTAINED",
+        "SIMULATE ELECTRONIC CONTAINMENT": "CONTAINMENT MODEL COMPLETE // NO SIGNAL TRANSMITTED",
+        "SIMULATE INTERCEPT HANDOFF": "TRAINING HANDOFF PACKAGE GENERATED LOCALLY",
+        "MARK TRAINING CONTACT NEUTRALISED": "TRAINING CONTACT MARKED RESOLVED // MONITORING CONTINUES",
+    }[action]
+    history.append(
+        {
+            "time": datetime.now().astimezone().strftime("%H:%M:%S.%f")[:-3],
+            "action": action,
+            "result": result,
+            "quality": int(snapshot["quality"]),
+        }
+    )
+    del history[:-20]
+
+
+@st.fragment(run_every=UI_REFRESH_SECONDS)
+def _render_war_contact() -> None:
+    snapshot = _poll_phone()
+    if snapshot["alert"] != AlertLevel.CRITICAL:
+        st.session_state["phone_war_mode"] = False
+        st.rerun()
+        return
+
+    history = st.session_state.get("phone_signal_history", [])
+    assessment = assess_training_contact(snapshot, history)
+    safe_name = html.escape(str(snapshot["name"]))
+    age = snapshot.get("sample_age")
+    age_text = f"{float(age):.2f}s" if age is not None else "--"
+    rssi_text = f"{snapshot['rssi_dbm']} dBm" if snapshot["rssi_dbm"] is not None else "N/A"
+    st.markdown(
+        f"""
+        <div class="war-command">
+          <div><div class="war-kicker">AUTOMATIC ESCALATION // THRESHOLD EXCEEDED</div>
+          <div class="war-title">WAR MODE</div><div class="war-sub">CONTACT CUSTODY AND DEFENSIVE RESPONSE SIMULATION</div></div>
+          <div class="war-signal"><span>LIVE SIGNAL</span><strong>{int(snapshot['quality'])}%</strong>
+          <small>{html.escape(snapshot['source'])} // AGE {age_text}</small></div>
+        </div>
+        <div class="war-alert">PRIORITY CONTACT // {html.escape(assessment.track_state)} // AUTOMATIC TRACK ACTIVE</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    left, right = st.columns([1.25, 1.0])
+    with left:
+        st.markdown("### CONTACT INTELLIGENCE")
+        a, b, c = st.columns(3)
+        a.metric("TRAINING CLASS", assessment.object_type)
+        b.metric("ASSESSMENT CONFIDENCE", f"{assessment.confidence}%")
+        c.metric("MOTION", assessment.motion)
+        st.code(
+            f"CONTACT={safe_name}\nLINK={snapshot['link_state'].value}\nRSSI={rssi_text}\n"
+            f"MEAN_QUALITY={assessment.mean_quality:.1f}%\nVOLATILITY={assessment.volatility:.1f}\n"
+            f"TRACK={assessment.track_state}",
+            language=None,
+        )
+        st.plotly_chart(_war_chart(history), width="stretch")
+
+    with right:
+        st.markdown("### OFFLINE EVIDENCE FUSION")
+        st.markdown(
+            '<div class="war-panel"><b>MODEL JUDGMENT</b><br>'
+            + html.escape(assessment.recommendation)
+            + '<br><br><b>EVIDENCE USED</b><br>'
+            + "<br>".join(f"• {html.escape(item)}" for item in assessment.evidence)
+            + "</div>",
+            unsafe_allow_html=True,
+        )
+        st.markdown("### DEFENSIVE RESPONSE // DEMO")
+        st.caption("LOCAL SIMULATION ONLY // THESE CONTROLS DO NOT TRANSMIT OR CONTROL A DEVICE")
+        actions = (
+            "SIMULATE TRACK LOCK",
+            "SIMULATE ELECTRONIC CONTAINMENT",
+            "SIMULATE INTERCEPT HANDOFF",
+            "MARK TRAINING CONTACT NEUTRALISED",
+        )
+        for action in actions:
+            if st.button(action, width="stretch", key=f"war_{action}"):
+                _record_training_response(action, snapshot)
+        log = st.session_state.get("war_response_log", [])
+        if log:
+            st.markdown("### RESPONSE AUDIT")
+            st.dataframe(pd.DataFrame(reversed(log)), width="stretch", hide_index=True)
+        else:
+            st.code("AWAITING OPERATOR RESPONSE // CONTINUOUS TRACK ACTIVE", language=None)
+
+
+def _render_war_mode() -> None:
+    """Render the isolated high-signal interface; normal Phone Link is absent."""
+
+    st.markdown(
+        """
+        <style>
+          @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&display=swap');
+          [data-testid="stSidebar"], [data-testid="collapsedControl"], #MainMenu, footer,
+          [data-testid="stHeader"] {display:none !important;}
+          .st-key-war_state_keepers {display:none !important;}
+          .stApp {background:radial-gradient(circle at 50% 35%,#190303 0,#080000 45%,#020000 100%) !important;
+            color:#ffe6e6 !important;font-family:'JetBrains Mono',monospace;}
+          .stApp::after {content:'';position:fixed;inset:0;pointer-events:none;z-index:9998;
+            border:4px solid #ff2020;box-shadow:inset 0 0 38px #ff2020cc,inset 0 0 120px #90000088,
+            0 0 35px #ff2020;animation:warPulse 1.05s ease-in-out infinite;}
+          @keyframes warPulse {0%,100%{opacity:.55}50%{opacity:1}}
+          .block-container {max-width:1500px;padding:1.4rem 2.5rem 3rem !important;}
+          .war-command {display:flex;justify-content:space-between;align-items:center;border:1px solid #ff3434;
+            border-left:10px solid #ff3434;background:#100000;padding:13px 18px;margin-bottom:8px;}
+          .war-kicker,.war-sub,.war-signal span,.war-signal small {font-size:11px;letter-spacing:.13em;color:#d77;}
+          .war-title {font-size:44px;line-height:1;font-weight:800;letter-spacing:.12em;color:#fff;text-shadow:0 0 18px #f00;}
+          .war-signal {text-align:right;min-width:230px}.war-signal span,.war-signal small {display:block}
+          .war-signal strong {display:block;color:#fff;font-size:54px;line-height:1;font-variant-numeric:tabular-nums;}
+          .war-alert {background:#e00000;color:white;padding:7px;text-align:center;font-weight:800;letter-spacing:.12em;
+            animation:alertBar .7s steps(2,end) infinite;}@keyframes alertBar{50%{background:#650000}}
+          h1,h2,h3 {color:#ffeaea !important;letter-spacing:.08em;text-transform:uppercase;}
+          .war-panel,div[data-testid="stMetric"],[data-testid="stPlotlyChart"],div[data-testid="stDataFrame"] {
+            background:#090000 !important;border:1px solid #702020 !important;border-radius:0 !important;}
+          .war-panel {padding:14px;line-height:1.65;color:#e8bcbc;min-height:215px}.war-panel b{color:#fff;}
+          div[data-testid="stMetric"] {padding:10px;}[data-testid="stMetricValue"] {color:#fff !important;
+            font-size:1rem !important;white-space:normal !important;line-height:1.2 !important;}
+          [data-testid="stMetricLabel"] p {font-size:.65rem !important;white-space:normal !important;}
+          [data-testid="stMetricLabel"] p,.stCaption p {color:#d77 !important;}
+          .stButton>button {border-radius:0 !important;background:#210000 !important;color:#fff !important;
+            border:1px solid #ff3d3d !important;font-family:'JetBrains Mono',monospace !important;font-weight:700;}
+          .stButton>button:hover {background:#870000 !important;box-shadow:0 0 18px #f22;}
+          code {color:#ffc9c9 !important;}
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    # Keep acquisition widgets mounted but invisible so Streamlit does not
+    # discard their values while the separate War Mode interface is active.
+    with st.container(key="war_state_keepers"):
+        st.selectbox(
+            "SOURCE STATE",
+            ["Phone browser link", "Mac Bluetooth RSSI", "Demo signal"],
+            key="phone_source",
+        )
+        st.select_slider(
+            "INTAKE STATE", options=INTAKE_INTERVALS, key="phone_intake_interval"
+        )
+        st.toggle("MONITORING STATE", key="phone_monitoring")
+    render_alarm_controller()
+    _render_war_contact()
+
+
 @st.fragment(run_every=UI_REFRESH_SECONDS)
 def _render_live_detail() -> None:
     snapshot = _poll_phone()
+    if snapshot["alert"] == AlertLevel.CRITICAL:
+        st.session_state["phone_war_mode"] = True
+        st.rerun()
+        return
     history = st.session_state.get("phone_signal_history", [])
     st.markdown(
         _alert_css(snapshot["alert"]) + '<div class="phone-edge"></div>',
@@ -474,7 +743,7 @@ def _render_live_detail() -> None:
             f"RATE={1000 / get_companion_server().registry.interval_ms:g}Hz",
             language=None,
         )
-    st.plotly_chart(_chart(history), use_container_width=True)
+    st.plotly_chart(_chart(history), width="stretch")
     if snapshot.get("error"):
         st.caption(f"TELEMETRY NOTICE // {snapshot['error']}")
     if snapshot["link_state"] == LinkState.PAIRED:
@@ -502,7 +771,7 @@ def _render_simulation_console() -> None:
         f"ALERT={snapshot['alert'].value}  DISPLAY REFRESH=100ms",
         language=None,
     )
-    if st.button("EXECUTE PHONE-DRIVEN SIMULATION", type="primary", use_container_width=True):
+    if st.button("EXECUTE PHONE-DRIVEN SIMULATION", type="primary", width="stretch"):
         with st.spinner("EXECUTING SCAN MISSION..."):
             config = load_config(str(ROOT / "config" / "default.yaml"))
             config.simulation.num_steps = steps
@@ -574,7 +843,7 @@ def _render_simulation_console() -> None:
         yaxis_title="FREQUENCY BAND",
         height=420,
     )
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
 
 
 def render_phone_link(palette: dict[str, str]) -> None:
@@ -582,6 +851,18 @@ def render_phone_link(palette: dict[str, str]) -> None:
 
     del palette
     _load_preferences()
+    initial_snapshot = _poll_phone()
+    if initial_snapshot["alert"] == AlertLevel.CRITICAL:
+        st.session_state["phone_war_mode"] = True
+        _render_war_mode()
+        return
+    st.session_state["phone_war_mode"] = False
+    # War Mode intentionally omits normal widgets. Restore their values from
+    # non-widget state after Streamlit cleans up those absent widget keys.
+    st.session_state.setdefault("phone_source", st.session_state["phone_source_saved"])
+    st.session_state.setdefault(
+        "phone_intake_interval", st.session_state["phone_intake_interval_saved"]
+    )
     st.markdown(
         """
         <style>
@@ -666,7 +947,7 @@ def render_phone_link(palette: dict[str, str]) -> None:
         st.caption("PHONE ACCESS ADDRESSES // TRY THE FIRST, THEN THE NEXT IF IT CANNOT OPEN")
         for address in companion.urls:
             st.code(address, language=None)
-        if st.button("TEST LOCAL LINK SERVICE", use_container_width=True):
+        if st.button("TEST LOCAL LINK SERVICE", width="stretch"):
             passed, detail = companion.self_test()
             if passed:
                 st.success(f"LOCAL SERVICE PASS // {detail}")

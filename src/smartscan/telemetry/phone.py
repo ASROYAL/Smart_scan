@@ -70,10 +70,10 @@ def _desired_level(current: AlertLevel, quality: int) -> AlertLevel:
             return AlertLevel.CRITICAL
         return AlertLevel.CAUTION if quality >= 76 else AlertLevel.NORMAL
     if current == AlertLevel.CAUTION:
-        if quality >= 90:
+        if quality > 90:
             return AlertLevel.CRITICAL
         return AlertLevel.CAUTION if quality >= 76 else AlertLevel.NORMAL
-    if quality >= 90:
+    if quality > 90:
         return AlertLevel.CRITICAL
     if quality >= 80:
         return AlertLevel.CAUTION

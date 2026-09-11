@@ -53,6 +53,10 @@ bg, surf, bd, tx, mut, acc, acc2, good, bad = (
     P[k] for k in ("bg", "surf", "bd", "tx", "mut", "acc", "acc2", "good", "bad")
 )
 
+if workspace_view == "Phone Link":
+    render_phone_link(P)
+    st.stop()
+
 st.markdown(
     f"""
     <style>
@@ -139,11 +143,6 @@ def tile(label, value, chip=None, up=True, i=0, tone=None):
 
 def tile_grid(tiles):
     st.markdown("<div class='tgrid'>" + "".join(tiles) + "</div>", unsafe_allow_html=True)
-
-
-if workspace_view == "Phone Link":
-    render_phone_link(P)
-    st.stop()
 
 
 def _confusion(records):

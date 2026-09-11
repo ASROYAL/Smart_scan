@@ -166,7 +166,13 @@ an adjustable 0.1-5 second intake interval for browser heartbeats, Bluetooth
 polling, and the demo source. It
 automatically resumes the last locally selected phone, and keeps the contact
 trace inside the dedicated Phone Link workspace. At 80% quality it enters a
-yellow caution state; at 90% it enters the red **War Mode** training view. Audible alerts are
+yellow caution state; after two consecutive samples above 90% it replaces the
+normal console with an isolated red **War Mode** training interface. War Mode
+shows the live signal at the top right, derives motion and confidence from the
+rolling observation history, and applies the configured demo identity rule:
+phones represent fighter aircraft and AirPods represent drone formations. Its
+track-lock, containment, handoff, and neutralisation controls create local
+simulation records only; they do not transmit or control a device. Audible alerts are
 operator-armed and can be silenced. Press **ARM AUDIO** once after opening the
 dashboard; this user gesture satisfies Safari and Chrome autoplay rules, after
 which caution and War Mode transitions sound automatically. A phone-driven

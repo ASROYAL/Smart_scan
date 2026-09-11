@@ -37,6 +37,17 @@ def test_alert_thresholds_debounce_and_hysteresis():
     assert state.level == AlertLevel.CRITICAL
 
 
+def test_war_mode_requires_signal_above_ninety_percent():
+    state = AlertMemory()
+    state = advance_alert(state, 90)
+    state = advance_alert(state, 90)
+    assert state.level == AlertLevel.CAUTION
+
+    state = advance_alert(state, 91)
+    state = advance_alert(state, 91)
+    assert state.level == AlertLevel.CRITICAL
+
+
 def test_rssi_quality_and_training_snr_are_bounded():
     assert rssi_to_quality(-40) == ("EXCELLENT", 100)
     assert rssi_to_quality(None) == ("UNAVAILABLE", 0)

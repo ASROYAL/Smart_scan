@@ -1,6 +1,10 @@
-"""Tests for the local Bluetooth telemetry parser."""
+"""Tests for local phone telemetry and training contact assessment."""
 
-from phone_link import parse_system_profiler, signal_quality
+from datetime import UTC, datetime
+
+from phone_link import assess_training_contact, parse_system_profiler, signal_quality
+
+from smartscan.telemetry.phone import AlertLevel, LinkState
 
 
 def test_parse_connected_android_phone_with_rssi():
@@ -56,3 +60,44 @@ def test_signal_quality_thresholds_and_bounds():
     assert signal_quality(-90)[0] == "Weak"
     assert signal_quality(-120) == ("Weak", 0)
     assert signal_quality(None) == ("Unavailable", 0)
+
+
+def _critical_snapshot(name: str) -> dict:
+    return {
+        "name": name,
+        "rssi_dbm": -43,
+        "quality": 94,
+        "quality_label": "EXCELLENT",
+        "link_state": LinkState.LIVE,
+        "alert": AlertLevel.CRITICAL,
+        "sample_age": 0.2,
+        "source": "DEMO",
+        "error": None,
+    }
+
+
+def test_training_assessment_maps_phone_to_fighter_with_observation_evidence():
+    history = [
+        {"time": datetime.now(UTC), "quality": quality, "rssi_dbm": -50}
+        for quality in range(82, 95)
+    ]
+
+    assessment = assess_training_contact(_critical_snapshot("TRAINING PHONE"), history)
+
+    assert assessment.object_type == "FIGHTER AIRCRAFT"
+    assert assessment.motion == "APPROACHING"
+    assert 32 <= assessment.confidence <= 97
+    assert "13 recent observations" in assessment.evidence[1]
+    assert "no ground-truth emitter label" in assessment.evidence[-1]
+
+
+def test_training_assessment_maps_airpods_to_drone_formation():
+    history = [
+        {"time": datetime.now(UTC), "quality": 94, "rssi_dbm": -43}
+        for _ in range(15)
+    ]
+
+    assessment = assess_training_contact(_critical_snapshot("Aijaz AirPods Pro"), history)
+
+    assert assessment.object_type == "DRONE FORMATION"
+    assert assessment.motion == "STABLE"
