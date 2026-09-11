@@ -55,4 +55,3 @@ class RFSource(ABC):
 
     def close(self) -> None:
         """Release any resources. Default is no-op."""
-        pass

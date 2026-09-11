@@ -2,14 +2,13 @@
 
 import numpy as np
 import plotly.graph_objects as go
-import pytest
 
 from smartscan.core.config import DetectorConfig
 from smartscan.core.models import AcquisitionMeta
 from smartscan.evaluation.evaluator import RunArtifacts
 from smartscan.evaluation.metrics import ScanRecord
-from smartscan.visualization import metrics_viz, spectrum, timeline
 from smartscan.simulation.waveform import generate_tone
+from smartscan.visualization import metrics_viz, spectrum, timeline
 
 
 def make_artifacts(n=20):

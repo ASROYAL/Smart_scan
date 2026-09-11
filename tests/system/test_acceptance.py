@@ -12,10 +12,7 @@ truthful reporting, and which scheduler wins depends on the metric and regime.
 
 from __future__ import annotations
 
-import pytest
-
 from smartscan.core.config import load_config
-from smartscan.core.models import EmitterConfig, EmitterType
 from smartscan.evaluation.experiment import build_and_run
 
 
@@ -91,6 +88,7 @@ class TestGroundTruthIsolationSystemLevel:
         config = acceptance_config()
         config.simulation.num_steps = 100
         outcome = build_and_run(config, "adaptive", "mixed", seed=2024)
+        assert outcome.result.num_steps == 100  # a full run actually happened
         # The runner holds the scheduler; verify the scheduler has no env ref
         # by checking all its attributes.
         # (build_and_run doesn't return the scheduler, so we re-run and inspect.)

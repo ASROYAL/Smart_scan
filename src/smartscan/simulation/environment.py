@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from smartscan.core.models import AcquisitionMeta, EmitterConfig, GroundTruthEvent
+from smartscan.core.models import EmitterConfig, GroundTruthEvent
 from smartscan.simulation.emitters import BaseEmitter, create_emitter
 from smartscan.simulation.noise import generate_awgn
 
@@ -136,7 +136,12 @@ class RFEnvironment:
         return events
 
     def is_any_active_in_band(
-        self, time: float, freq_start: float, freq_end: float,
+        self, time: float, freq_start: float, freq_end: float, dwell: float = 0.0,
     ) -> bool:
-        """Quick check: is any emitter active in this freq/time window? EVALUATION ONLY."""
+        """Is any emitter active in this freq/time window? EVALUATION ONLY.
+
+        ``dwell`` is accepted for interface parity with the PDW environment (whose
+        pulses need interval overlap); for continuous tone emitters the point-in-
+        time check at ``time`` is sufficient, so it is ignored here.
+        """
         return len(self.get_ground_truth_at(time, freq_start, freq_end)) > 0

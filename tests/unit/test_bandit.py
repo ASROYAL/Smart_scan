@@ -1,10 +1,9 @@
 """Tests for bandit schedulers."""
 
 import numpy as np
-import pytest
 
 from smartscan.core.config import ReceiverConfig, SchedulerConfig
-from smartscan.core.models import BandObservation, BandState, ScanDecision
+from smartscan.core.models import BandObservation, BandState
 from smartscan.schedulers.bandit import ThompsonSamplingScheduler, UCB1BanditScheduler
 
 
@@ -35,7 +34,7 @@ class TestUCB1:
         for t in range(5):
             d = sched.select_band(states, float(t))
             visited.append(d.band_id)
-            sched.update(d, make_obs(d.band_id, False))
+            sched.update(d, make_obs(d.band_id, False), reward=0.0)
         assert set(visited) == {0, 1, 2, 3, 4}
 
     def test_exploits_high_reward_arm(self):
@@ -47,14 +46,14 @@ class TestUCB1:
         for t in range(60):
             d = sched.select_band(states, float(t))
             detected = (d.band_id == 1)
-            sched.update(d, make_obs(d.band_id, detected))
+            sched.update(d, make_obs(d.band_id, detected), reward=float(detected))
 
         # Now band 1 should be selected most often in a fresh batch
         counts = {0: 0, 1: 0, 2: 0}
         for t in range(30):
             d = sched.select_band(states, float(t))
             counts[d.band_id] += 1
-            sched.update(d, make_obs(d.band_id, d.band_id == 1))
+            sched.update(d, make_obs(d.band_id, d.band_id == 1), reward=float(d.band_id == 1))
         assert counts[1] > counts[0]
         assert counts[1] > counts[2]
 
@@ -62,7 +61,7 @@ class TestUCB1:
         sched = UCB1BanditScheduler(rx_cfg(), SchedulerConfig(), num_bands=3)
         states = make_states(3)
         d = sched.select_band(states, 0.0)
-        sched.update(d, make_obs(d.band_id, True))
+        sched.update(d, make_obs(d.band_id, True), reward=1.0)
         sched.reset()
         assert sched._total == 0
         assert np.all(sched._counts == 0)
@@ -78,7 +77,7 @@ class TestThompsonSampling:
         for t in range(20):
             d = sched.select_band(states, float(t))
             assert 0 <= d.band_id < 5
-            sched.update(d, make_obs(d.band_id, False))
+            sched.update(d, make_obs(d.band_id, False), reward=0.0)
 
     def test_learns_best_arm(self):
         sched = ThompsonSamplingScheduler(rx_cfg(), num_bands=3, seed=42)
@@ -86,7 +85,7 @@ class TestThompsonSampling:
         # Band 2 always active
         for t in range(100):
             d = sched.select_band(states, float(t))
-            sched.update(d, make_obs(d.band_id, d.band_id == 2))
+            sched.update(d, make_obs(d.band_id, d.band_id == 2), reward=float(d.band_id == 2))
 
         # Posterior for band 2 should have high alpha
         assert sched._alpha[2] > sched._alpha[0]
@@ -102,6 +101,6 @@ class TestThompsonSampling:
             d2 = s2.select_band(states, float(t))
             ids1.append(d1.band_id)
             ids2.append(d2.band_id)
-            s1.update(d1, make_obs(d1.band_id, False))
-            s2.update(d2, make_obs(d2.band_id, False))
+            s1.update(d1, make_obs(d1.band_id, False), reward=0.0)
+            s2.update(d2, make_obs(d2.band_id, False), reward=0.0)
         assert ids1 == ids2

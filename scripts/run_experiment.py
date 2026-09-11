@@ -59,6 +59,8 @@ def main() -> None:
     print(f"  Band coverage:          {r.band_coverage:.3f}")
     print(f"  Starvation rate:        {r.starvation_rate:.3f}")
     print(f"  Average reward:         {r.avg_reward:.3f}")
+    print(f"  Prediction accuracy:    {r.prediction_accuracy:.3f}")
+    print(f"  Avg intercept-time err: {r.avg_intercept_time_error*1000:.1f} ms")
     print(f"  Wall-clock:             {r.wall_clock_seconds:.2f} s")
 
     out_dir = Path(args.output_dir)

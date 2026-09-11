@@ -41,7 +41,7 @@ def compute_psd(
             fs=sample_rate,
             window=window_name,
             nfft=fft_size,
-            detrend=False,
+            detrend=False,  # pyright: ignore[reportArgumentType]  # scipy stub omits Literal[False]
             return_onesided=False,
             scaling="density",
         )
@@ -57,7 +57,7 @@ def compute_psd(
             nperseg=nperseg,
             noverlap=noverlap,
             nfft=fft_size,
-            detrend=False,
+            detrend=False,  # pyright: ignore[reportArgumentType]  # scipy stub omits Literal[False]
             return_onesided=False,
             scaling="density",
         )

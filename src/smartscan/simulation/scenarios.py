@@ -7,7 +7,7 @@ fair comparison.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -202,6 +202,35 @@ def scenario_mixed(
     return Scenario("mixed", "Mixture of activity types", emitters, duration=15.0)
 
 
+def scenario_radar_scan(
+    seed: int = 42, num_bands: int = 50, total_bw: float = 1000e6, center: float = 500e6,
+) -> Scenario:
+    """Rotating-antenna (spatially scanning) radars, some frequency-agile.
+
+    Models the classic ES intercept problem: each radar illuminates the receiver
+    only during a brief main-beam dwell once per antenna rotation, so a naive
+    sweep easily misses it between visits.
+    """
+    rng = np.random.default_rng(seed)
+    active_bands = rng.choice(num_bands, size=4, replace=False)
+    bc = lambda b: _band_center(b, num_bands, total_bw, center)
+    scan_periods = [2.0, 3.0, 4.0, 5.0]     # antenna rotation periods (s)
+    beam_dwells = [0.2, 0.25, 0.3, 0.2]      # main-beam illumination (s)
+    emitters = []
+    for i, b in enumerate(active_bands):
+        # make the last radar frequency-agile across two bands
+        agile = i == len(active_bands) - 1
+        hop = [bc(b), bc(active_bands[0])] if agile else None
+        emitters.append(EmitterConfig(
+            emitter_id=i, emitter_type=EmitterType.RADAR_SCAN,
+            center_frequency=bc(b), bandwidth=5e6, amplitude=1.0, snr_db=25.0,
+            scan_period=scan_periods[i % len(scan_periods)],
+            beam_dwell=beam_dwells[i % len(beam_dwells)],
+            hop_frequencies=hop,
+        ))
+    return Scenario("radar_scan", "Rotating-antenna scanning radars", emitters, duration=20.0)
+
+
 SCENARIO_FACTORIES = {
     "sparse": scenario_sparse,
     "dense": scenario_dense,
@@ -211,6 +240,7 @@ SCENARIO_FACTORIES = {
     "changing": scenario_changing,
     "low_snr": scenario_low_snr,
     "mixed": scenario_mixed,
+    "radar_scan": scenario_radar_scan,
 }
 
 

@@ -33,7 +33,7 @@ def spectrum_figure(
     freqs_mhz = freqs / 1e6
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=freqs_mhz, y=psd_db, mode="lines", name="PSD",
-                              line=dict(color="#2c7fb8")))
+                              line={"color": "#2c7fb8"}))
     fig.add_hline(y=noise_floor, line_dash="dot", line_color="gray",
                   annotation_text="noise floor")
     fig.add_hline(y=threshold, line_dash="dash", line_color="red",
@@ -43,7 +43,7 @@ def spectrum_figure(
         xaxis_title="Frequency (MHz)",
         yaxis_title="Power (dB)",
         height=400,
-        margin=dict(l=40, r=20, t=40, b=40),
+        margin={"l": 40, "r": 20, "t": 40, "b": 40},
     )
     return fig
 
@@ -65,14 +65,14 @@ def waterfall_figure(
         x=freqs_mhz,
         y=times,
         colorscale="Viridis",
-        colorbar=dict(title="dB"),
+        colorbar={"title": "dB"},
     ))
     fig.update_layout(
         title="Waterfall (PSD over time)",
         xaxis_title="Frequency (MHz)",
         yaxis_title="Time (s)",
         height=450,
-        margin=dict(l=40, r=20, t=40, b=40),
+        margin={"l": 40, "r": 20, "t": 40, "b": 40},
     )
     return fig
 
@@ -95,13 +95,13 @@ def band_activity_heatmap(
         x=times,
         y=list(range(num_bands)),
         colorscale="Hot",
-        colorbar=dict(title="value"),
+        colorbar={"title": "value"},
     ))
     fig.update_layout(
         title=title,
         xaxis_title="Time (s)",
         yaxis_title="Band ID",
         height=450,
-        margin=dict(l=40, r=20, t=40, b=40),
+        margin={"l": 40, "r": 20, "t": 40, "b": 40},
     )
     return fig

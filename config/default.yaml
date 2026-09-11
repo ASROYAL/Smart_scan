@@ -32,7 +32,7 @@ scheduler:
   reward_revisit_penalty_scale: 0.01
 
 simulation:
-  duration: 60.0
+  # duration: null   # optional; if set, drives step count. Default: use the scenario's duration.
   seed: 42
 
 database:

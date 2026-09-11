@@ -9,6 +9,7 @@ import yaml
 from pydantic import BaseModel, Field
 
 from smartscan.core.models import (
+    DetectorType,
     NoiseEstMethod,
     PSDMethod,
     SchedulerType,
@@ -34,6 +35,7 @@ class ReceiverConfig(BaseModel):
 
 class DetectorConfig(BaseModel):
     window: WindowFunction = Field(default=WindowFunction.HANN)
+    detector_type: DetectorType = Field(default=DetectorType.ENERGY)
     psd_method: PSDMethod = Field(default=PSDMethod.WELCH)
     noise_method: NoiseEstMethod = Field(default=NoiseEstMethod.MEDIAN)
     threshold_margin_db: float = Field(default=6.0, description="dB above noise floor")
@@ -41,6 +43,10 @@ class DetectorConfig(BaseModel):
     welch_nperseg: int | None = Field(default=None, description="defaults to fft_size")
     welch_overlap: float = Field(default=0.5, ge=0, lt=1)
     percentile: float = Field(default=25.0, ge=0, le=100, description="for percentile noise est")
+    # cyclostationary/matched-filter detectors
+    autocorr_lags: int = Field(default=32, gt=0, description="lags for cyclostationary feature")
+    autocorr_threshold: float = Field(default=0.15, ge=0, le=1,
+        description="normalised cyclic-autocorrelation detection threshold")
 
 
 class SchedulerConfig(BaseModel):
@@ -53,11 +59,26 @@ class SchedulerConfig(BaseModel):
     ucb_c: float = Field(default=2.0, gt=0, description="UCB exploration constant")
     reward_hit: float = Field(default=1.0)
     reward_miss: float = Field(default=0.0)
-    reward_revisit_penalty_scale: float = Field(default=0.01, ge=0)
+    reward_revisit_penalty_scale: float = Field(default=0.01, ge=0,
+        description="deprecated (old long-gap penalty); superseded by the terms below")
+    reward_tuning_cost: float = Field(default=0.0, ge=0, description="cost per retune")
+    reward_dwell_cost: float = Field(default=0.0, ge=0, description="cost per dwell")
+    reward_repeat_penalty_scale: float = Field(default=0.02, ge=0,
+        description="penalty for revisiting a just-seen band (over-camping)")
+    reward_starvation_bonus_scale: float = Field(default=0.02, ge=0,
+        description="bonus for returning to a long-neglected band (coverage recovery)")
+    # Q-learning (reinforcement-learning scheduler)
+    q_alpha: float = Field(default=0.2, gt=0, le=1, description="TD learning rate")
+    q_gamma: float = Field(default=0.9, ge=0, lt=1, description="discount (multi-step lookahead)")
+    q_epsilon: float = Field(default=0.2, ge=0, le=1, description="initial exploration rate")
+    q_epsilon_decay: float = Field(default=0.999, gt=0, le=1, description="epsilon decay per step")
 
 
 class SimulationConfig(BaseModel):
-    duration: float = Field(default=60.0, gt=0, description="seconds")
+    duration: float | None = Field(
+        default=None, gt=0,
+        description="seconds; when set (and num_steps is not), drives the step count. "
+                    "If None, the selected scenario's own duration is used.")
     seed: int = Field(default=42)
     num_steps: int | None = Field(default=None, description="overrides duration-based step count")
 

@@ -19,10 +19,10 @@ def make_receiver(**cfg_kwargs):
     ]
     env = RFEnvironment(emitters, noise_power_dbm=-100.0, sample_rate=20e6, seed=42)
     src = SimulatedRFSource(env)
-    defaults = dict(
-        instantaneous_bandwidth=20e6, sample_rate=20e6,
-        dwell_time=0.001, tuning_delay=0.0005,
-    )
+    defaults = {
+        "instantaneous_bandwidth": 20e6, "sample_rate": 20e6,
+        "dwell_time": 0.001, "tuning_delay": 0.0005,
+    }
     defaults.update(cfg_kwargs)
     cfg = ReceiverConfig(**defaults)
     return Receiver(src, cfg), env

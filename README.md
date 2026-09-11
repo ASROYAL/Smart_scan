@@ -20,6 +20,44 @@ scheduling code.
 
 ---
 
+## 0. Electronic Warfare framing
+
+This is a **machine-learning Electronic Support (ES) receiver scheduler**. An ES
+sensor has high sensitivity but an instantaneous bandwidth an order of magnitude
+smaller than the spectrum it must guard, so it has to *sweep* — a two-dimensional
+(frequency × time) search. Open-loop, pre-mission sweep plans waste time on
+non-threatening emitters; the goal here is a **closed-loop, learning** scheduler
+that minimises **intercept time** and maximises **interception rate** against
+periodic, frequency-agile, and spatially-scanning (rotating-antenna) emitters,
+trained online from **hits and misses**.
+
+| EW term | In this repo |
+|---|---|
+| ES receiver / dwell / revisit | `Receiver` (limited BW + tuning delay) + `ScanDecision` |
+| Emitter truth per band per time slot | `RFEnvironment` / `PDWEnvironment` ground truth |
+| Spatially-scanning radar | `radar_scan` emitter (rotating-beam illumination) |
+| Frequency-agile emitter | `frequency_hopping` / agile `radar_scan` |
+| Intercept time / interception ratio | discovery delay / activity discovery ratio |
+| Avg intercept rate | scan hit rate |
+| Probability of detection / false alarm | PD / PFA |
+| Sensitivity | `scripts/sensitivity_sweep.py` (PD vs SNR) |
+| % correct predictions | `prediction_accuracy` |
+| Avg intercept time error | `avg_intercept_time_error` |
+| Robust ML scheduler trained on hits/misses | `adaptive` (LinUCB) + bandits |
+
+**Radar ESM result (synthetic PDWs, 6 rotating radars, 1500 scans, seed 1):** learning
+schedulers intercept **≈9× more per scan** than a blind round-robin sweep — `bandit_ucb`
+hit-rate **0.199** vs round-robin **0.021**. Measuring *distinct* illuminations
+intercepted exposes the real trade-off: a blind sweep stumbles onto more one-off
+flashes across the whole span (round-robin and Thompson both reach **0.65** distinct),
+while the learners lock onto and re-intercept active emitters far more efficiently —
+`adaptive` posts the **fastest average intercept, 56 ms** (vs 136 ms for round-robin).
+Reproduce with `python scripts/pdw_experiment.py --compare`. (The
+`activity_discovery_ratio` counts **distinct** ground-truth events, not per-scan true
+positives.)
+
+---
+
 ## 1. Architecture
 
 ```mermaid
@@ -97,6 +135,13 @@ Benchmark every scheduler against every scenario (fair, seed-matched):
 python scripts/benchmark_schedulers.py --num-bands 60 --steps 800 --seeds 1 2 3
 ```
 
+Radar ESM intercept on pulse (PDW) data, and a detector sensitivity sweep:
+
+```bash
+python scripts/pdw_experiment.py --compare --steps 1500     # rotating radars
+python scripts/sensitivity_sweep.py                         # PD vs SNR
+```
+
 Generate a recorded IQ dataset and confirm the same pipeline replays it:
 
 ```bash
@@ -141,6 +186,15 @@ Each scan step of the online loop:
 | `bandit_ucb` | UCB1: mean reward + `c·√(ln N / n)` exploration bonus |
 | `bandit_thompson` | Beta-Bernoulli Thompson Sampling |
 | `adaptive` | **Contextual bandit (shared LinUCB)** over per-band feature vectors, plus periodicity-aware revisit bonus |
+| `q_learning` | **Reinforcement learning** — tabular contextual Q-learning with discounted (multi-step) return; beats the open-loop baselines on persistent activity, and a neural DQN is the natural extension |
+
+### Detectors (selectable via `detector.detector_type`)
+
+| Detector | Idea |
+|----------|------|
+| `energy` | PSD vs adaptive threshold (default) |
+| `matched_filter` | coherent single-FFT **peak-bin** detector with CFAR correction — keeps full processing gain for narrowband emitters |
+| `cyclostationary` | **cyclic-autocorrelation** feature detector — exploits signal correlation to catch structured signals and reject white noise |
 
 The adaptive scheduler learns a linear map from each band's feature context
 (activity ratio, recency, confidence, SNR, …) to expected reward, so it generalizes
@@ -162,6 +216,9 @@ across bands and makes informed guesses about rarely-visited ones.
 | **Starvation rate** | fraction of bands whose max revisit gap exceeds a threshold |
 | **Precision / Recall / F1** | detector quality vs ground truth |
 | **Average reward** | mean per-scan reward (detection-driven) |
+| **Prediction accuracy** | % of scans whose pre-scan activity belief matched truth |
+| **Avg intercept-time error** | mean \|predicted − actual\| next-activity time (periodicity) |
+| **Sensitivity** | PD vs SNR sweep — `scripts/sensitivity_sweep.py` |
 
 The system carefully distinguishes **detector performance** (PD, PFA, F1) from
 **scheduler performance** (discovery delay, efficiency, coverage, starvation).
@@ -171,41 +228,48 @@ The system carefully distinguishes **detector performance** (PD, PFA, F1) from
 ## 7. Scenarios
 
 `sparse`, `dense`, `periodic`, `random_burst`, `frequency_hopping`, `changing`
-(statistics shift midway), `low_snr`, and `mixed`. All are reproducible from a seed
-and used identically across schedulers for fair comparison.
+(statistics shift midway), `low_snr`, `mixed`, and **`radar_scan`** (rotating-antenna
+search radars, some frequency-agile — the classic ES intercept problem). All are
+reproducible from a seed and used identically across schedulers for fair comparison.
 
 ---
 
 ## 8. Honest results
 
 Actual output of `benchmark_schedulers.py --num-bands 60 --steps 800 --seeds 1 2 3`
-(6 schedulers × 8 scenarios × 3 seeds = 144 runs), averaged across all scenarios:
+(7 schedulers × 9 scenarios × 3 seeds = 189 runs), averaged across all scenarios.
+**`Discovery ratio` counts distinct ground-truth events intercepted** (fixed — it
+previously counted every true-positive scan and inflated to ~1.0):
 
-| Scheduler | Discovery ratio | Scan efficiency | Avg discovery delay | Coverage | Avg reward |
+| Scheduler | Discovery ratio | Scan efficiency | Avg intercept delay | Coverage | Avg reward |
 |-----------|-----------------|-----------------|---------------------|----------|------------|
-| **adaptive** | **1.00** | **0.71** | 0.564 s | 0.53 | **0.71** |
-| bandit_thompson | 1.00 | 0.65 | 0.459 s | 1.00 | 0.65 |
-| priority | 1.00 | 0.45 | 0.276 s | 1.00 | 0.45 |
-| bandit_ucb | 1.00 | 0.26 | 0.273 s | 1.00 | 0.26 |
-| round_robin | 0.86 | 0.08 | **0.260 s** | 1.00 | 0.08 |
-| random | 0.84 | 0.09 | 0.269 s | 1.00 | 0.09 |
+| round_robin | **0.76** | 0.075 | 0.237 s | 1.00 | 0.06 |
+| bandit_ucb | 0.75 | 0.24 | 0.245 s | 1.00 | 0.22 |
+| priority | 0.73 | 0.40 | 0.248 s | 1.00 | 0.38 |
+| random | 0.67 | 0.077 | 0.259 s | 1.00 | 0.06 |
+| **bandit_thompson** | 0.66 | 0.58 | 0.340 s | 1.00 | 0.56 |
+| q_learning | 0.56 | 0.19 | 0.284 s | 0.99 | 0.17 |
+| **adaptive** | 0.21 | **0.64** | 0.276 s | 0.59 | **0.62** |
 
-**What the adaptive scheduler wins:** scan efficiency (**8.5× round-robin**),
-average reward, and it discovers **every** activity event (ratio 1.00) where
-round-robin and random miss some (0.86 / 0.84). For a continuous-*monitoring*
-mission — keep re-detecting activity — it is the clear winner.
+**The honest picture (no metric hides the trade-off now):**
+- **Most distinct emitters found:** `round_robin` and `bandit_ucb` (discovery 0.76 / 0.75)
+  at full coverage (1.00) — sweeping everything finds the most one-off events, but each
+  scan is cheap-yield (efficiency 0.075 / 0.24).
+- **Best efficiency and reward — least wasted effort:** `adaptive` (efficiency **0.64**,
+  reward **0.62**, ≈**8.6× round-robin's 0.075**) and `bandit_thompson` (0.58 / 0.56).
+  They lock onto active emitters and re-intercept them cheaply.
+- **`bandit_thompson` is the strongest all-rounder:** high efficiency *and* reward while
+  keeping full coverage (1.00) and mid-pack discovery (0.66).
+- **`adaptive` is a specialist:** top efficiency and reward, but it concentrates on the
+  bands it believes are active — coverage 0.59 and the lowest discovery (0.21). Great for
+  *staying on* known emitters; weakest for *finding* new ones. (Fastest intercept delay
+  belongs to the exhaustive sweepers here — `round_robin` at 0.237 s — because they revisit
+  every band on a fixed short cycle.)
 
-**Where it does not win, reported truthfully:** round-robin has the **lowest average
-discovery delay** (0.260 s vs adaptive's 0.564 s). *Why:* the learning schedulers
-deliberately spend scans exploiting known-active bands, which delays first-discovery
-of *new* events; a systematic sweep finds a fresh event faster on its next pass.
-Adaptive also has lower **coverage** (0.53) because it concentrates on active bands
-rather than visiting every band — a deliberate monitoring tradeoff, not a defect.
-
-So the choice is mission-dependent: **adaptive/Thompson for efficient monitoring,
-round-robin for minimum worst-case discovery latency.** No numbers here are
-hand-picked — regenerate them with the command above; they land in
-`data/results/benchmark_summary.csv` and `benchmark_ranking.csv`.
+So the choice is genuinely mission-dependent: **Thompson/UCB for balanced search,
+adaptive for maximal efficiency on known activity, round-robin for exhaustive
+coverage.** No numbers are hand-picked — regenerate them with the command above;
+they land in `data/results/benchmark_summary.csv` and `benchmark_ranking.csv`.
 
 ---
 
@@ -218,7 +282,59 @@ Format: raw **complex64** binary (interleaved float32 I/Q) plus a JSON sidecar:
 ```
 
 `RecordedIQSource` reads these and feeds the **identical** DSP pipeline used for
-simulated samples. Generate one with `scripts/generate_dataset.py`.
+simulated samples. Generate one with `scripts/generate_dataset.py`, then run the
+full online loop against it via the recorded-file entry point:
+
+```bash
+python scripts/generate_dataset.py --scenario periodic --duration 2.0 --center 730e6
+python scripts/recorded_experiment.py --iq data/recordings/periodic.c64 --scheduler adaptive
+```
+
+`build_and_run_recorded()` mirrors `build_and_run()`. Real recordings have no
+labels, so truth-based metrics (PD / PFA / intercept ratio / delay) are reported as
+0; detection-side metrics (hit rate, coverage, prediction accuracy, reward) are real.
+
+**Other optional runtime components (all now wired in):**
+- **Online ML predictor** — pass `use_ml_predictor=True` to `build_and_run(...)` to
+  drive the pre-scan activity belief with the logistic-SGD `MLActivityPredictor`
+  instead of the band's EWMA.
+- **SQLite persistence** — set `database.backend: sqlite` (and `sqlite_path`) in the
+  config and every run's final band states + observation history are written to disk.
+- **`simulation.duration`** — set it to make the step count derive from a fixed
+  mission duration; leave unset to use the selected scenario's own duration.
+- **`FeatureExtractor`** runs every scan step, populating `artifacts.band_features`.
+
+---
+
+## 9b. Radar ESM / PDW data (Turing dataset)
+
+Radar ESM datasets ship as **Pulse Descriptor Words** (one row per pulse: time of
+arrival, RF frequency, pulse width, angle of arrival, amplitude, emitter label) —
+e.g. the Alan Turing Institute's *Turing Synthetic Radar Dataset* (its **Scan Mode**
+is a realistic frequency-sweeping receiver, directly matching this problem).
+
+`smartscan.simulation.pdw` turns a PDW table into a `PDWEnvironment` that answers
+*transmission / non-transmission per band per time slot* and synthesises IQ, so the
+**same** detector → scheduler → evaluator pipeline runs on pulse data unchanged.
+
+```bash
+# seeded synthetic radars (no download needed) — compare all schedulers
+python scripts/pdw_experiment.py --compare --steps 1500
+
+# your own PDW export (Turing Scan Mode, or any CSV with
+#   toa, frequency, pulse_width, amplitude, emitter_id  — aliases accepted)
+python scripts/pdw_experiment.py --pdw-csv data/recordings/turing_scan.csv --scheduler adaptive
+
+# full CAMPAIGN — every scheduler across many pulse trains, averaged + saved to CSV
+python scripts/pdw_campaign.py --seeds 1 2 3 --steps 1500
+python scripts/pdw_campaign.py --pdw-dir data/recordings/turing_scan/   # a folder of real Turing CSVs
+```
+
+To use the real Turing data: export a Scan-Mode pulse train to CSV with those
+columns (a full 70 GB download is **not** required — a single pulse train works),
+then point `--pdw-csv` at it. Note the Turing *challenge* task is pulse
+**deinterleaving** (clustering pulses by emitter); we consume the same PDWs for the
+sibling task of **scan scheduling / intercept**.
 
 ---
 

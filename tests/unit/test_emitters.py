@@ -15,10 +15,10 @@ from smartscan.simulation.emitters import (
 
 
 def make_config(**kwargs) -> EmitterConfig:
-    defaults = dict(
-        emitter_id=0, emitter_type=EmitterType.CONTINUOUS,
-        center_frequency=100e6, bandwidth=5e6, amplitude=1.0, snr_db=20.0,
-    )
+    defaults = {
+        "emitter_id": 0, "emitter_type": EmitterType.CONTINUOUS,
+        "center_frequency": 100e6, "bandwidth": 5e6, "amplitude": 1.0, "snr_db": 20.0,
+    }
     defaults.update(kwargs)
     return EmitterConfig(**defaults)
 

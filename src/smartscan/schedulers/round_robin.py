@@ -34,7 +34,7 @@ class RoundRobinScheduler(BaseScheduler):
             timestamp=current_time,
         )
 
-    def update(self, decision: ScanDecision, observation: BandObservation) -> None:
+    def update(self, decision: ScanDecision, observation: BandObservation, reward: float = 0.0) -> None:
         pass  # Round robin is stateless w.r.t. observations
 
     def reset(self) -> None:

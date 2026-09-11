@@ -1,7 +1,6 @@
 """Tests for the adaptive contextual-bandit scheduler."""
 
 import numpy as np
-import pytest
 
 from smartscan.core.config import ReceiverConfig, SchedulerConfig
 from smartscan.core.models import BandObservation, BandState
@@ -86,7 +85,7 @@ class TestAdaptiveScheduler:
             detected = states[d.band_id].rolling_activity_prob > 0.5
             obs = make_obs(d.band_id, detected)
             states[d.band_id].last_scan_time = float(t)
-            sched.update(d, obs)
+            sched.update(d, obs, reward=float(detected))
 
         theta = sched.get_theta()
         assert len(theta) == AdaptiveScheduler.N_FEATURES
@@ -98,7 +97,7 @@ class TestAdaptiveScheduler:
         states = make_states(3)
         theta_before = sched.get_theta().copy()
         d = sched.select_band(states, 0.0)
-        sched.update(d, make_obs(d.band_id, True))
+        sched.update(d, make_obs(d.band_id, True), reward=1.0)
         theta_after = sched.get_theta()
         assert not np.allclose(theta_before, theta_after)
 
@@ -106,7 +105,7 @@ class TestAdaptiveScheduler:
         sched = AdaptiveScheduler(rx_cfg(), SchedulerConfig(), num_bands=3)
         states = make_states(3)
         d = sched.select_band(states, 0.0)
-        sched.update(d, make_obs(d.band_id, True))
+        sched.update(d, make_obs(d.band_id, True), reward=1.0)
         sched.reset()
         assert np.allclose(sched.get_theta(), np.zeros(AdaptiveScheduler.N_FEATURES))
 

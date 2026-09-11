@@ -9,6 +9,7 @@ from __future__ import annotations
 import numpy as np
 
 from smartscan.core.models import BandObservation, BandState
+from smartscan.prediction.periodicity import estimate_periodicity
 from smartscan.state.band_history import BandHistory
 
 
@@ -22,12 +23,14 @@ class SpectrumStateManager:
         center_frequency: float,
         ewma_alpha: float = 0.1,
         history_window: int = 20,
+        episode_gap: float = 0.05,
     ) -> None:
         self.num_bands = num_bands
         self.total_bandwidth = total_bandwidth
         self.center_frequency = center_frequency
         self.ewma_alpha = ewma_alpha
         self.history_window = history_window
+        self.episode_gap = episode_gap
 
         self._band_width = total_bandwidth / num_bands
         self._start_freq = center_frequency - total_bandwidth / 2
@@ -99,6 +102,15 @@ class SpectrumStateManager:
 
         # Confidence grows with observation count (more data → more confident estimate)
         state.confidence = float(np.clip(n / (n + 10), 0.0, 1.0))
+
+        # Better predictions: estimate the recurrence period from detection history
+        # so the scheduler can time revisits and the evaluator can score intercept
+        # time error. Only recompute when a fresh detection arrives.
+        if obs.detected and len(history.detection_times) >= 4:
+            est = estimate_periodicity(
+                history.detection_times, obs.timestamp, episode_gap=self.episode_gap)
+            if est.estimated_period is not None and est.confidence >= 0.3:
+                state.estimated_period = est.estimated_period
 
     def reset(self) -> None:
         for band_id in range(self.num_bands):

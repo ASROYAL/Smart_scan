@@ -61,7 +61,7 @@ class TestDiscoveryDelays:
 
     def test_delay_statistics(self):
         delays = [0.5, 1.0, 1.5, 2.0]
-        mean, median, p95 = metrics.delay_statistics(delays)
+        mean, median, _p95 = metrics.delay_statistics(delays)
         assert mean == pytest.approx(1.25)
         assert median == pytest.approx(1.25)
 
@@ -82,9 +82,7 @@ class TestCoverage:
 class TestStarvationRate:
     def test_no_starvation(self):
         # Visit all 2 bands frequently
-        records = []
-        for t in range(10):
-            records.append(rec(t=float(t), band=t % 2))
+        records = [rec(t=float(t), band=t % 2) for t in range(10)]
         rate = metrics.starvation_rate(records, num_bands=2, duration=10.0,
                                         starvation_threshold=5.0)
         assert rate == 0.0
@@ -133,14 +131,14 @@ class TestPrecisionRecallF1:
 
 class TestActivityDiscoveryRatio:
     def test_ratio(self):
-        records = [
-            rec(detected=True, active=True),
-            rec(detected=True, active=True),
-        ]
-        assert metrics.activity_discovery_ratio(records, total_activity_events=4) == 0.5
+        # 2 distinct events discovered out of 4 total = 0.5 (counts distinct events,
+        # not per-scan true positives)
+        assert metrics.activity_discovery_ratio(2, total_activity_events=4) == 0.5
+        # re-detecting the same events cannot inflate past 1.0
+        assert metrics.activity_discovery_ratio(9, total_activity_events=4) == 1.0
 
     def test_zero_events(self):
-        assert metrics.activity_discovery_ratio([], 0) == 0.0
+        assert metrics.activity_discovery_ratio(0, 0) == 0.0
 
 
 class TestAverageReward:

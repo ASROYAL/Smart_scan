@@ -43,6 +43,26 @@ def generate_tone(
     return signal
 
 
+def generate_chirp(
+    num_samples: int,
+    sample_rate: float,
+    center_offset: float,
+    bandwidth: float,
+    power_dbm: float,
+    sweep_time: float | None = None,
+) -> np.ndarray:
+    """Linear-FM (chirp) sweep of width `bandwidth` around `center_offset`.
+
+    Models a radar LFM pulse: instantaneous frequency ramps from -bw/2 to +bw/2.
+    """
+    amplitude = np.sqrt(dbm_to_watts(power_dbm))
+    t = np.arange(num_samples) / sample_rate
+    T = sweep_time if sweep_time else (num_samples / sample_rate)
+    k = bandwidth / max(T, 1e-12)                      # chirp rate (Hz/s)
+    inst_phase = 2 * np.pi * ((center_offset - bandwidth / 2) * t + 0.5 * k * t ** 2)
+    return amplitude * np.exp(1j * inst_phase)
+
+
 def generate_bandlimited_noise(
     num_samples: int,
     sample_rate: float,

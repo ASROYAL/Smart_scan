@@ -18,17 +18,40 @@ class PeriodicityEstimate:
     predicted_next_activity_time: float | None
 
 
+def group_into_episodes(detection_times: list[float], episode_gap: float) -> list[float]:
+    """Cluster detection timestamps into activity episodes; return episode START times.
+
+    Consecutive detections closer than ``episode_gap`` belong to the same episode
+    (one burst / illumination that the receiver caught several times); a larger gap
+    starts a new episode. Periodicity is then judged from the *episode* cadence,
+    not from every positive scan — so a scheduler that camps on a band and detects
+    it many times within one ON-window does not fake a tiny period.
+    """
+    if not detection_times:
+        return []
+    times = sorted(detection_times)
+    starts = [times[0]]
+    prev = times[0]
+    for t in times[1:]:
+        if t - prev > episode_gap:
+            starts.append(t)
+        prev = t
+    return starts
+
+
 def estimate_periodicity(
     detection_times: list[float],
     current_time: float,
     min_detections: int = 4,
+    episode_gap: float = 0.05,
 ) -> PeriodicityEstimate:
-    """Estimate the activity period from detection timestamps.
+    """Estimate the activity period from the cadence of activity EPISODES.
 
     Args:
         detection_times: Timestamps (seconds) at which activity was detected.
         current_time: Current simulation time.
-        min_detections: Minimum detections needed to estimate a period.
+        min_detections: Minimum detections before attempting an estimate.
+        episode_gap: Detections closer than this (seconds) are one episode.
 
     Returns:
         PeriodicityEstimate with period, confidence, and next-activity prediction.
@@ -36,18 +59,17 @@ def estimate_periodicity(
     if len(detection_times) < min_detections:
         return PeriodicityEstimate(None, 0.0, None)
 
-    times = np.sort(np.array(detection_times))
-    intervals = np.diff(times)
-
-    # Filter out sub-resolution intervals (consecutive detections within one burst)
-    positive = intervals[intervals > 1e-6]
-    if len(positive) < min_detections - 1:
+    episode_starts = group_into_episodes(detection_times, episode_gap)
+    # Need at least 3 episodes (2 intervals) to judge a repeating period
+    if len(episode_starts) < 3:
         return PeriodicityEstimate(None, 0.0, None)
 
-    # Robust period estimate: median of inter-arrival intervals
-    median_period = float(np.median(positive))
+    intervals = np.diff(np.array(episode_starts))
+    positive = intervals[intervals > 1e-6]
+    if len(positive) < 2:
+        return PeriodicityEstimate(None, 0.0, None)
 
-    # Confidence: low coefficient of variation → high confidence in periodicity
+    median_period = float(np.median(positive))
     mean_interval = float(np.mean(positive))
     std_interval = float(np.std(positive))
     if mean_interval <= 0:
@@ -56,11 +78,10 @@ def estimate_periodicity(
     cv = std_interval / mean_interval
     confidence = float(np.clip(1.0 - cv, 0.0, 1.0))
 
-    # Predict next activity time
-    last_detection = float(times[-1])
+    last_episode = float(episode_starts[-1])
     if median_period > 0:
-        cycles_elapsed = int((current_time - last_detection) / median_period)
-        next_time = last_detection + (cycles_elapsed + 1) * median_period
+        cycles_elapsed = int((current_time - last_episode) / median_period)
+        next_time = last_episode + (cycles_elapsed + 1) * median_period
     else:
         next_time = None
 
@@ -101,10 +122,10 @@ def autocorrelation_period(
     # Find first peak after the zero-lag, skipping the initial descent
     peak_lag = None
     for lag in range(2, max_lag):
-        if autocorr[lag] > autocorr[lag - 1] and autocorr[lag] >= autocorr[lag + 1]:
-            if autocorr[lag] > 0.3:  # require a reasonably strong peak
-                peak_lag = lag
-                break
+        if (autocorr[lag] > autocorr[lag - 1] and autocorr[lag] >= autocorr[lag + 1]
+                and autocorr[lag] > 0.3):  # require a reasonably strong peak
+            peak_lag = lag
+            break
 
     if peak_lag is None:
         return None

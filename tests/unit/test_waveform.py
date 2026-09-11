@@ -78,3 +78,48 @@ class TestBandlimitedNoise:
 
         # Most energy should be within the bandwidth
         assert in_band_power / total_power > 0.9
+
+
+class TestChirpAndWaveformDispatch:
+    def test_chirp_occupies_bandwidth(self):
+        import numpy as np
+
+        from smartscan.simulation.waveform import generate_chirp
+        sig = generate_chirp(4096, 20e6, center_offset=0.0, bandwidth=5e6, power_dbm=-40.0)
+        assert len(sig) == 4096 and np.iscomplexobj(sig)
+        spec = np.abs(np.fft.fftshift(np.fft.fft(sig))) ** 2
+        freqs = np.fft.fftshift(np.fft.fftfreq(4096, 1 / 20e6))
+        in_bw = spec[np.abs(freqs) <= 3e6].sum()
+        assert in_bw / spec.sum() > 0.8      # energy concentrated in the swept band
+
+    def test_emitter_waveform_dispatch(self):
+        import numpy as np
+
+        from smartscan.core.models import EmitterConfig, EmitterType, WaveformType
+        from smartscan.simulation.emitters import create_emitter
+        for wf in (WaveformType.TONE, WaveformType.CHIRP, WaveformType.PULSED,
+                   WaveformType.BANDLIMITED_NOISE):
+            cfg = EmitterConfig(emitter_id=0, emitter_type=EmitterType.CONTINUOUS,
+                                center_frequency=100e6, bandwidth=5e6, amplitude=1.0,
+                                snr_db=25.0, waveform=wf)
+            e = create_emitter(cfg, noise_power_dbm=-100.0)
+            sig = e.generate_samples(0.0, 2000, 20e6, 100e6, 20e6)
+            assert sig is not None and len(sig) == 2000 and np.iscomplexobj(sig)
+
+    def test_default_waveform_is_tone(self):
+        from smartscan.core.models import EmitterConfig, EmitterType, WaveformType
+        from smartscan.simulation.emitters import create_emitter
+        cfg = EmitterConfig(emitter_id=0, emitter_type=EmitterType.RADAR_SCAN,
+                            center_frequency=100e6, bandwidth=5e6, amplitude=1.0,
+                            snr_db=25.0, scan_period=2.0, beam_dwell=0.2)
+        e = create_emitter(cfg, noise_power_dbm=-100.0)
+        assert e._effective_waveform() == WaveformType.TONE   # opt-in for chirp
+
+    def test_chirp_opt_in(self):
+        from smartscan.core.models import EmitterConfig, EmitterType, WaveformType
+        from smartscan.simulation.emitters import create_emitter
+        cfg = EmitterConfig(emitter_id=0, emitter_type=EmitterType.RADAR_SCAN,
+                            center_frequency=100e6, bandwidth=5e6, amplitude=1.0,
+                            snr_db=25.0, scan_period=2.0, beam_dwell=0.2,
+                            waveform=WaveformType.CHIRP)
+        assert create_emitter(cfg, noise_power_dbm=-100.0)._effective_waveform() == WaveformType.CHIRP

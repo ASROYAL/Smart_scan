@@ -12,11 +12,11 @@ def get_window(window: WindowFunction, size: int) -> np.ndarray:
     """Return a window function array of the given size."""
     match window:
         case WindowFunction.HANN:
-            return sp_signal.windows.hann(size, sym=False)
+            return sp_signal.windows.hann(size, sym=False)  # pyright: ignore[reportAttributeAccessIssue]
         case WindowFunction.HAMMING:
-            return sp_signal.windows.hamming(size, sym=False)
+            return sp_signal.windows.hamming(size, sym=False)  # pyright: ignore[reportAttributeAccessIssue]
         case WindowFunction.BLACKMAN:
-            return sp_signal.windows.blackman(size, sym=False)
+            return sp_signal.windows.blackman(size, sym=False)  # pyright: ignore[reportAttributeAccessIssue]
         case _:
             raise ValueError(f"Unknown window: {window}")
 

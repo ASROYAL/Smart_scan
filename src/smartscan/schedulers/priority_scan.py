@@ -87,7 +87,7 @@ class PriorityScanScheduler(BaseScheduler):
             timestamp=current_time,
         )
 
-    def update(self, decision: ScanDecision, observation: BandObservation) -> None:
+    def update(self, decision: ScanDecision, observation: BandObservation, reward: float = 0.0) -> None:
         pass  # State updates happen in the SpectrumStateManager
 
     def reset(self) -> None:

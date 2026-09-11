@@ -7,6 +7,8 @@ charts.
 
 from __future__ import annotations
 
+from typing import cast
+
 import pandas as pd
 
 from smartscan.core.config import SmartScanConfig
@@ -89,11 +91,10 @@ def summarize(df: pd.DataFrame) -> pd.DataFrame:
         "median_delay_s", "p95_delay_s", "scan_efficiency", "coverage",
         "starvation_rate", "avg_reward",
     ]
-    return (
-        df.groupby(["scenario", "scheduler"])[metric_cols]
-        .mean()
-        .reset_index()
-    )
+    # groupby(...).mean() returns a DataFrame here; cast past the pandas stubs'
+    # DataFrame|Series|scalar union so .reset_index() type-checks.
+    means = cast(pd.DataFrame, df.groupby(["scenario", "scheduler"])[metric_cols].mean())
+    return means.reset_index()
 
 
 def scheduler_ranking(df: pd.DataFrame) -> pd.DataFrame:
@@ -102,9 +103,5 @@ def scheduler_ranking(df: pd.DataFrame) -> pd.DataFrame:
         "PD", "discovery_ratio", "avg_delay_s", "scan_efficiency",
         "coverage", "avg_reward",
     ]
-    return (
-        df.groupby("scheduler")[metric_cols]
-        .mean()
-        .sort_values("discovery_ratio", ascending=False)
-        .reset_index()
-    )
+    means = cast(pd.DataFrame, df.groupby("scheduler")[metric_cols].mean())
+    return means.sort_values("discovery_ratio", ascending=False).reset_index()

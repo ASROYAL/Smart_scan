@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from smartscan.acquisition.base import RFSource
-from smartscan.core.models import AcquisitionMeta, BandObservation, BandState, ScanDecision
+from smartscan.core.models import AcquisitionMeta, BandState, ScanDecision
 from smartscan.dsp.base import BaseDetector
 from smartscan.prediction.base import BasePredictor
 from smartscan.schedulers.base import BaseScheduler

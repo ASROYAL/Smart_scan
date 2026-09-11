@@ -6,13 +6,11 @@ dataclasses where immutability and speed matter more than validation.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any
 
 import numpy as np
-from pydantic import BaseModel, Field, field_validator
-
+from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
 # Enums
@@ -24,6 +22,7 @@ class EmitterType(str, Enum):
     RANDOM_BURST = "random_burst"
     FREQUENCY_HOPPING = "frequency_hopping"
     SCAN_LIKE = "scan_like"
+    RADAR_SCAN = "radar_scan"  # rotating-antenna radar: illuminates receiver briefly each rotation
 
 
 class WindowFunction(str, Enum):
@@ -50,6 +49,21 @@ class SchedulerType(str, Enum):
     BANDIT_UCB = "bandit_ucb"
     BANDIT_THOMPSON = "bandit_thompson"
     ADAPTIVE = "adaptive"
+    Q_LEARNING = "q_learning"
+
+
+class DetectorType(str, Enum):
+    ENERGY = "energy"
+    MATCHED_FILTER = "matched_filter"
+    CYCLOSTATIONARY = "cyclostationary"
+
+
+class WaveformType(str, Enum):
+    TONE = "tone"                      # continuous-wave single carrier
+    PULSED = "pulsed"                  # gated carrier (radar-like pulse train)
+    BANDLIMITED_NOISE = "noise"        # occupies `bandwidth` (wideband emission)
+    DIGITAL = "digital"               # simple digital modulation (≈ band-limited)
+    CHIRP = "chirp"                    # linear-FM sweep across `bandwidth` (radar)
 
 
 # ---------------------------------------------------------------------------
@@ -155,9 +169,11 @@ class EmitterConfig(BaseModel):
     emitter_id: int = Field(ge=0)
     emitter_type: EmitterType
     center_frequency: float = Field(gt=0, description="Hz")
-    bandwidth: float = Field(gt=0, description="Hz")
-    amplitude: float = Field(gt=0, description="linear amplitude")
-    snr_db: float = Field(default=20.0, description="SNR in dB above noise floor")
+    bandwidth: float = Field(gt=0, description="Hz occupied bandwidth (shapes non-tone waveforms)")
+    amplitude: float = Field(gt=0, description="DEPRECATED — power is controlled by snr_db; kept for back-compat")
+    snr_db: float = Field(default=20.0, description="signal power as SNR (dB) above the noise floor — the single power control")
+    waveform: WaveformType | None = Field(
+        default=None, description="waveform type; None defaults to a CW tone. Set to chirp/pulsed/noise/digital to opt into wider waveforms")
 
     # Timing (type-dependent)
     start_time: float = Field(default=0.0, ge=0, description="seconds")
@@ -170,6 +186,12 @@ class EmitterConfig(BaseModel):
     # Frequency hopping
     hop_frequencies: list[float] | None = Field(default=None, description="list of center freqs")
     hop_interval: float | None = Field(default=None, description="seconds between hops")
+
+    # Radar antenna scan (rotating-beam illumination)
+    scan_period: float | None = Field(
+        default=None, gt=0, description="antenna rotation period in seconds")
+    beam_dwell: float | None = Field(
+        default=None, gt=0, description="main-beam illumination time on the receiver per rotation, s")
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +281,9 @@ class ExperimentResult(BaseModel):
     probability_of_detection: float = Field(ge=0, le=1)
     probability_of_false_alarm: float = Field(ge=0, le=1)
     scan_hit_rate: float = Field(ge=0, le=1)
-    activity_discovery_ratio: float = Field(ge=0, le=1)
+    activity_discovery_ratio: float = Field(ge=0, le=1, description="distinct events intercepted")
+    emitter_intercept_ratio: float = Field(default=0.0, ge=0, le=1,
+        description="distinct emitters intercepted / total emitters")
 
     # Delay metrics
     avg_discovery_delay: float = Field(ge=0, description="seconds")
@@ -272,6 +296,26 @@ class ExperimentResult(BaseModel):
     starvation_rate: float = Field(ge=0, le=1)
     avg_reward: float = Field(default=0.0)
 
+    # EW figures of merit (problem-statement vocabulary)
+    prediction_accuracy: float = Field(default=0.0, ge=0, le=1,
+        description="percentage of correct pre-scan activity predictions")
+    brier_score: float = Field(default=0.0, ge=0, le=1,
+        description="mean squared error of predicted activity probability (lower better)")
+    log_loss: float = Field(default=0.0, ge=0,
+        description="binary cross-entropy of predicted probability (lower better)")
+    avg_intercept_time_error: float = Field(default=0.0, ge=0,
+        description="mean |predicted - actual| next-activity time, seconds")
+
     # Extra
     wall_clock_seconds: float = Field(default=0.0, ge=0)
     config: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def intercept_ratio(self) -> float:
+        """EW alias for activity discovery ratio (fraction of emitters intercepted)."""
+        return self.activity_discovery_ratio
+
+    @property
+    def avg_intercept_delay(self) -> float:
+        """EW alias for average discovery delay (average intercept time)."""
+        return self.avg_discovery_delay

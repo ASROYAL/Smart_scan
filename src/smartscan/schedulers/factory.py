@@ -8,6 +8,7 @@ from smartscan.schedulers.adaptive import AdaptiveScheduler
 from smartscan.schedulers.bandit import ThompsonSamplingScheduler, UCB1BanditScheduler
 from smartscan.schedulers.base import BaseScheduler
 from smartscan.schedulers.priority_scan import PriorityScanScheduler
+from smartscan.schedulers.qlearning import QLearningScheduler
 from smartscan.schedulers.random_scan import RandomScanScheduler
 from smartscan.schedulers.round_robin import RoundRobinScheduler
 
@@ -36,6 +37,8 @@ def create_scheduler(
             return ThompsonSamplingScheduler(receiver_config, num_bands, seed=seed)
         case SchedulerType.ADAPTIVE:
             return AdaptiveScheduler(receiver_config, scheduler_config, num_bands)
+        case SchedulerType.Q_LEARNING:
+            return QLearningScheduler(receiver_config, scheduler_config, num_bands, seed=seed)
         case _:
             raise ValueError(f"Unknown scheduler type: {scheduler_type}")
 
@@ -47,4 +50,5 @@ ALL_SCHEDULER_TYPES = [
     SchedulerType.BANDIT_UCB,
     SchedulerType.BANDIT_THOMPSON,
     SchedulerType.ADAPTIVE,
+    SchedulerType.Q_LEARNING,
 ]

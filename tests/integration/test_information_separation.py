@@ -15,7 +15,6 @@ from smartscan.schedulers.priority_scan import PriorityScanScheduler
 from smartscan.schedulers.random_scan import RandomScanScheduler
 from smartscan.schedulers.round_robin import RoundRobinScheduler
 
-
 ALL_SCHEDULERS = [
     lambda: RoundRobinScheduler(ReceiverConfig()),
     lambda: RandomScanScheduler(ReceiverConfig()),
@@ -31,9 +30,14 @@ class TestSchedulerInterfaceIsolation:
         assert params == {"self", "band_states", "current_time"}
 
     def test_update_signature_has_no_ground_truth(self):
+        # update receives the decision, the observation (detector output), and the
+        # shared shaped reward — a detection-derived scalar. None of these carry
+        # ground truth (no truly_active / emitter_id / environment).
         sig = inspect.signature(BaseScheduler.update)
         params = set(sig.parameters.keys())
-        assert params == {"self", "decision", "observation"}
+        assert params == {"self", "decision", "observation", "reward"}
+        forbidden = {"truly_active", "emitter_id", "environment", "ground_truth"}
+        assert params.isdisjoint(forbidden)
 
     @pytest.mark.parametrize("make_sched", ALL_SCHEDULERS)
     def test_scheduler_has_no_environment_reference(self, make_sched):

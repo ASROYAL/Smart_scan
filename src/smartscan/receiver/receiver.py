@@ -88,8 +88,7 @@ class Receiver:
 
         # Number of samples determined by sample rate and dwell time
         num_samples = int(self._config.sample_rate * dwell_time)
-        if num_samples < 1:
-            num_samples = 1
+        num_samples = max(num_samples, 1)
 
         samples, meta = self._source.read_samples(
             center_frequency=center_frequency,

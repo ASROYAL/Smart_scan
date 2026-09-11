@@ -1,6 +1,5 @@
 """Integration test — full scan loop from simulator to evaluator."""
 
-import pytest
 
 from smartscan.acquisition.simulator_source import SimulatedRFSource
 from smartscan.core.config import DetectorConfig, ReceiverConfig, SchedulerConfig
@@ -43,13 +42,13 @@ def build_system(num_bands=5, emitters=None, seed=42):
 
 class TestFullScanLoop:
     def test_runs_without_error(self):
-        runner, env, state = build_system()
+        runner, _env, _state = build_system()
         artifacts = runner.run(num_steps=25)
         assert len(artifacts.records) == 25
 
     def test_detects_strong_continuous_signal(self):
         """A 30 dB continuous emitter at 50 MHz should be detected when scanned."""
-        runner, env, state = build_system()
+        runner, _env, state = build_system()
         artifacts = runner.run(num_steps=25)
 
         # Band containing 50 MHz should have detections
@@ -73,13 +72,13 @@ class TestFullScanLoop:
         assert result.band_coverage > 0.0
 
     def test_round_robin_full_coverage(self):
-        runner, env, state = build_system(num_bands=5)
+        runner, _env, _state = build_system(num_bands=5)
         artifacts = runner.run(num_steps=10)
         visited = set(artifacts.band_visit_counts.keys())
         assert visited == {0, 1, 2, 3, 4}
 
     def test_timing_instrumentation_populated(self):
-        runner, env, state = build_system()
+        runner, _env, _state = build_system()
         artifacts = runner.run(num_steps=10)
         assert artifacts.timing.get_stats("acquisition").count == 10
         assert artifacts.timing.get_stats("dsp_detection").count == 10
@@ -95,7 +94,7 @@ class TestScanLoopWithPeriodicSource:
                 snr_db=30.0, period=0.01, duty_cycle=0.5,
             ),
         ]
-        runner, env, state = build_system(emitters=emitters)
+        runner, _env, state = build_system(emitters=emitters)
         artifacts = runner.run(num_steps=50)
 
         target_band = state.band_id_for_frequency(50e6)
@@ -109,10 +108,10 @@ class TestScanLoopWithPeriodicSource:
 
 class TestReproducibility:
     def test_same_seed_same_results(self):
-        r1, e1, s1 = build_system(seed=42)
+        r1, _e1, _s1 = build_system(seed=42)
         a1 = r1.run(num_steps=30)
 
-        r2, e2, s2 = build_system(seed=42)
+        r2, _e2, _s2 = build_system(seed=42)
         a2 = r2.run(num_steps=30)
 
         detections1 = [r.detected for r in a1.records]

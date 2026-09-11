@@ -21,6 +21,13 @@ class ScanRecord:
     detected: bool           # what the detector said
     truly_active: bool       # ground truth (evaluation only)
     reward: float
+    # the ACTUAL frequency window the receiver observed this scan (from acquisition
+    # metadata), which may be narrower than the logical band. Truth and event
+    # matching use this window, not the whole BandState.
+    freq_start: float = 0.0
+    freq_end: float = 0.0
+    predicted_prob: float = 0.5     # pre-scan predicted activity probability
+    predicted_active: bool = False  # predicted_prob >= threshold
 
 
 def probability_of_detection(records: list[ScanRecord]) -> float:
@@ -50,14 +57,19 @@ def scan_hit_rate(records: list[ScanRecord]) -> float:
 
 
 def activity_discovery_ratio(
-    records: list[ScanRecord],
+    num_events_discovered: int,
     total_activity_events: int,
 ) -> float:
-    """Fraction of distinct activity events that were discovered."""
+    """Fraction of DISTINCT ground-truth events discovered at least once.
+
+    Pass the count of distinct events that were intercepted (from the
+    event→first-detection matching), NOT the number of true-positive scans:
+    counting every TP scan and capping at 1 inflates the ratio when one event
+    is re-detected many times.
+    """
     if total_activity_events == 0:
         return 0.0
-    discovered = sum(1 for r in records if r.truly_active and r.detected)
-    return min(1.0, discovered / total_activity_events)
+    return min(1.0, num_events_discovered / total_activity_events)
 
 
 def discovery_delays(
@@ -124,7 +136,7 @@ def starvation_rate(
     for band_id in range(num_bands):
         times = sorted(visits_by_band.get(band_id, []))
         # Include start (0) and end (duration) as boundaries
-        boundaries = [0.0] + times + [duration]
+        boundaries = [0.0, *times, duration]
         max_gap = max(boundaries[i + 1] - boundaries[i] for i in range(len(boundaries) - 1))
         if max_gap > starvation_threshold:
             starved += 1
@@ -148,3 +160,122 @@ def precision_recall_f1(records: list[ScanRecord]) -> tuple[float, float, float]
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
     f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
     return precision, recall, f1
+
+
+# ---------------------------------------------------------------------------
+# EW-vocabulary figures of merit (problem-statement naming)
+# ---------------------------------------------------------------------------
+
+def percentage_correct_predictions(records: list[ScanRecord]) -> float:
+    """Fraction of scans whose pre-scan activity prediction matched ground truth.
+
+    Before each observation the predictor gives a probability the chosen band is
+    active; thresholded at 0.5 it becomes ``predicted_active``. This scores that
+    against what was truly there — the "percentage of correct predictions".
+    """
+    if not records:
+        return 0.0
+    correct = sum(1 for r in records if r.predicted_active == r.truly_active)
+    return correct / len(records)
+
+
+def brier_score(records: list[ScanRecord]) -> float:
+    """Mean squared error of the predicted activity probability (0 = perfect).
+
+    Brier = mean( (predicted_prob - truly_active)^2 ). A proper scoring rule for
+    probability quality — lower is better.
+    """
+    if not records:
+        return 0.0
+    return float(np.mean([(r.predicted_prob - (1.0 if r.truly_active else 0.0)) ** 2
+                          for r in records]))
+
+
+def log_loss(records: list[ScanRecord], eps: float = 1e-6) -> float:
+    """Mean binary cross-entropy of the predicted probability (lower is better)."""
+    if not records:
+        return 0.0
+    losses = []
+    for r in records:
+        p = min(max(r.predicted_prob, eps), 1.0 - eps)
+        y = 1.0 if r.truly_active else 0.0
+        losses.append(-(y * np.log(p) + (1 - y) * np.log(1 - p)))
+    return float(np.mean(losses))
+
+
+def average_intercept_time_error(
+    predicted_next_times: dict[int, float],
+    actual_next_times: dict[int, float],
+) -> float:
+    """Mean |predicted - actual| next-activity time over bands with both values.
+
+    Uses periodicity-based predictions (last detection + estimated period) versus
+    the true next event start — the problem statement's "average intercept time
+    error". Returns 0.0 when no band has a comparable prediction.
+    """
+    errors = []
+    for band_id, predicted in predicted_next_times.items():
+        actual = actual_next_times.get(band_id)
+        if actual is not None:
+            errors.append(abs(predicted - actual))
+    if not errors:
+        return 0.0
+    return float(np.mean(errors))
+
+
+def intercept_rate(records: list[ScanRecord]) -> float:
+    """Average intercept rate = successful intercepts per scan (alias of scan hit rate,
+    in EW terminology)."""
+    return scan_hit_rate(records)
+
+
+def sensitivity_curve(
+    detector,
+    make_meta,
+    snr_values: list[float],
+    noise_power_dbm: float = -100.0,
+    num_samples: int = 4096,
+    trials: int = 20,
+    sample_rate: float = 20e6,
+    seed: int = 0,
+) -> list[tuple[float, float, float]]:
+    """Detector sensitivity sweep: PD (and PFA) versus SNR.
+
+    For each SNR, injects a tone at that SNR into fresh noise ``trials`` times and
+    measures the detection rate (PD); also measures the false-alarm rate on
+    noise-only frames (PFA). Characterises receiver **sensitivity** — the FoM the
+    problem statement asks for.
+
+    Args:
+        detector: an object with ``detect(samples, meta) -> DetectionResult``.
+        make_meta: callable(num_samples) -> AcquisitionMeta for the frames.
+        snr_values: SNRs (dB) to sweep.
+        noise_power_dbm / num_samples / trials / sample_rate / seed: sweep params.
+
+    Returns:
+        List of (snr_db, pd, pfa) tuples.
+    """
+    from smartscan.simulation.noise import generate_awgn, power_for_snr
+    from smartscan.simulation.waveform import generate_tone
+
+    rng = np.random.default_rng(seed)
+    curve = []
+    # PFA is SNR-independent; measure once on noise-only frames.
+    fa = 0
+    for _ in range(trials):
+        noise = generate_awgn(num_samples, noise_power_dbm, rng)
+        if detector.detect(noise, make_meta(num_samples)).detected:
+            fa += 1
+    pfa = fa / trials if trials else 0.0
+
+    for snr in snr_values:
+        hits = 0
+        power_dbm = power_for_snr(noise_power_dbm, snr)
+        for _ in range(trials):
+            noise = generate_awgn(num_samples, noise_power_dbm, rng)
+            tone = generate_tone(num_samples, sample_rate, frequency_offset=0.0,
+                                 power_dbm=power_dbm)
+            if detector.detect(noise + tone, make_meta(num_samples)).detected:
+                hits += 1
+        curve.append((snr, hits / trials if trials else 0.0, pfa))
+    return curve

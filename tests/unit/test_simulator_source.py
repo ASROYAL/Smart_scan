@@ -1,9 +1,7 @@
 """Tests for SimulatedRFSource — verifying the information wall."""
 
-import inspect
 
 import numpy as np
-import pytest
 
 from smartscan.acquisition.simulator_source import SimulatedRFSource
 from smartscan.core.models import AcquisitionMeta, EmitterConfig, EmitterType
@@ -24,7 +22,7 @@ def make_source():
 class TestSimulatedRFSource:
     def test_returns_complex_samples(self):
         src, _ = make_source()
-        samples, meta = src.read_samples(100e6, 20e6, 1000)
+        samples, _meta = src.read_samples(100e6, 20e6, 1000)
         assert np.iscomplexobj(samples)
         assert len(samples) == 1000
 

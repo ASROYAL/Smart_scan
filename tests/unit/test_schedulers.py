@@ -1,9 +1,8 @@
 """Tests for baseline schedulers."""
 
-import pytest
 
 from smartscan.core.config import ReceiverConfig, SchedulerConfig
-from smartscan.core.models import BandObservation, BandState
+from smartscan.core.models import BandState
 from smartscan.schedulers.priority_scan import PriorityScanScheduler
 from smartscan.schedulers.random_scan import RandomScanScheduler
 from smartscan.schedulers.round_robin import RoundRobinScheduler

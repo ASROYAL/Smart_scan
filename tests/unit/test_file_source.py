@@ -86,8 +86,8 @@ class TestSamePipeline:
     def test_detector_processes_recorded_iq(self):
         from smartscan.core.config import DetectorConfig
         from smartscan.dsp.detector import EnergyDetector
-        from smartscan.simulation.waveform import generate_tone
         from smartscan.simulation.noise import generate_awgn
+        from smartscan.simulation.waveform import generate_tone
 
         # Create a recording with a strong tone
         rng = np.random.default_rng(0)

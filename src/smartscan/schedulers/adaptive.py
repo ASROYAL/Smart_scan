@@ -102,7 +102,8 @@ class AdaptiveScheduler(BaseScheduler):
                 best_context = x
 
         state = band_states[best_id]
-        self._last_context[best_id] = best_context
+        if best_context is not None:  # always true when band_states is non-empty
+            self._last_context[best_id] = best_context
 
         return ScanDecision(
             band_id=best_id,
@@ -128,25 +129,15 @@ class AdaptiveScheduler(BaseScheduler):
         proximity = min(phase, 1.0 - phase)  # 0 at recurrence, 0.5 mid-cycle
         return self._cfg.recency_weight * (0.5 - proximity)
 
-    def update(self, decision: ScanDecision, observation: BandObservation) -> None:
+    def update(self, decision: ScanDecision, observation: BandObservation,
+               reward: float = 0.0) -> None:
         band_id = decision.band_id
         x = self._last_context.get(band_id)
         if x is None:
             return
-
-        reward = self._compute_reward(observation)
-
-        # LinUCB online update
+        # LinUCB online update against the shared reward
         self._A += np.outer(x, x)
         self._b += reward * x
-
-    def _compute_reward(self, obs: BandObservation) -> float:
-        """Reward from detection outcome, with a confidence-scaled bonus."""
-        cfg = self._cfg
-        if obs.detected:
-            # Scale by confidence so strong detections are worth more
-            return cfg.reward_hit * (0.5 + 0.5 * obs.confidence)
-        return cfg.reward_miss
 
     def get_theta(self) -> np.ndarray:
         """Current learned weight vector (for inspection/debugging)."""

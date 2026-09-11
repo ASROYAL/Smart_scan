@@ -76,7 +76,7 @@ class TestTimingInstrument:
     def test_measure_records_time(self):
         timer = TimingInstrument()
         with timer.measure("test_stage"):
-            total = sum(range(1000))
+            sum(range(1000))  # a small workload to time
         stats = timer.get_stats("test_stage")
         assert stats.count == 1
         assert stats.total_ms > 0

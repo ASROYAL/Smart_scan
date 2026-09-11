@@ -67,17 +67,14 @@ class UCB1BanditScheduler(BaseScheduler):
             timestamp=current_time,
         )
 
-    def update(self, decision: ScanDecision, observation: BandObservation) -> None:
+    def update(self, decision: ScanDecision, observation: BandObservation,
+               reward: float = 0.0) -> None:
         band_id = decision.band_id
-        reward = self._reward(observation, decision)
         self._counts[band_id] += 1
         self._total += 1
-        # Incremental mean update
+        # Incremental mean of the shared reward
         n = self._counts[band_id]
         self._mean_reward[band_id] += (reward - self._mean_reward[band_id]) / n
-
-    def _reward(self, obs: BandObservation, decision: ScanDecision) -> float:
-        return self._cfg.reward_hit if obs.detected else self._cfg.reward_miss
 
     def reset(self) -> None:
         self._counts = np.zeros(self._num_bands, dtype=np.int64)
@@ -126,9 +123,12 @@ class ThompsonSamplingScheduler(BaseScheduler):
             timestamp=current_time,
         )
 
-    def update(self, decision: ScanDecision, observation: BandObservation) -> None:
+    def update(self, decision: ScanDecision, observation: BandObservation,
+               reward: float = 0.0) -> None:
+        # Beta-Bernoulli needs a binary outcome; treat a positive shared reward
+        # (i.e. a useful, confident detection) as a success.
         band_id = decision.band_id
-        if observation.detected:
+        if reward > 0.0:
             self._alpha[band_id] += 1
         else:
             self._beta[band_id] += 1

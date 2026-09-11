@@ -5,7 +5,7 @@ import pytest
 
 from smartscan.core.models import EmitterConfig, EmitterType
 from smartscan.simulation.environment import RFEnvironment
-from smartscan.simulation.noise import dbm_to_watts, watts_to_dbm
+from smartscan.simulation.noise import watts_to_dbm
 
 
 def make_env(emitters=None, **kwargs):
@@ -16,7 +16,7 @@ def make_env(emitters=None, **kwargs):
                 center_frequency=100e6, bandwidth=5e6, amplitude=1.0, snr_db=20.0,
             )
         ]
-    defaults = dict(noise_power_dbm=-100.0, sample_rate=20e6, seed=42)
+    defaults = {"noise_power_dbm": -100.0, "sample_rate": 20e6, "seed": 42}
     defaults.update(kwargs)
     return RFEnvironment(emitters, **defaults)
 

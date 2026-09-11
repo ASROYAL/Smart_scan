@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 
 from smartscan.core.models import BandFeatures, BandState
-from smartscan.prediction.periodicity import estimate_periodicity
 from smartscan.state.band_history import BandHistory
 
 
@@ -24,9 +23,6 @@ class FeatureExtractor:
         """Build a feature vector for one band at the current time."""
         recent_hits = history.recent_hits(self.history_window)
         recent_misses = history.recent_misses(self.history_window)
-
-        # Periodicity
-        period_est = estimate_periodicity(history.detection_times, current_time)
 
         # Average active/inactive durations from detection sequence
         avg_active, avg_inactive = self._avg_durations(history)
@@ -47,7 +43,7 @@ class FeatureExtractor:
             avg_active_duration=avg_active,
             avg_inactive_duration=avg_inactive,
             revisit_interval=revisit_interval,
-            estimated_period=period_est.estimated_period,
+            estimated_period=state.estimated_period,  # reuse the state manager's online estimate
             confidence=state.confidence,
             observation_count=state.observation_count,
         )

@@ -26,6 +26,7 @@ dev = [
     "pytest-cov>=4.1",
     "hypothesis>=6.98",
     "ruff>=0.2",
+    "pyright>=1.1.350",
 ]
 
 [tool.pytest.ini_options]
@@ -35,6 +36,40 @@ addopts = "-v --tb=short"
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+
+[tool.ruff.lint]
+# Beyond ruff's defaults (E, F, W), enable the higher-signal rule families this
+# project has been cleaned against, so CI keeps them from creeping back in.
+# (Deliberately NOT enabling UP/pyupgrade — UP042's str->StrEnum migration
+# changes enum __str__ semantics — nor the broader B family, which flags the
+# intentional empty optional-hook methods on BaseScheduler.)
+extend-select = [
+    "I",     # isort — import ordering
+    "SIM",   # flake8-simplify
+    "C4",    # flake8-comprehensions
+    "PERF",  # perflint
+    "RUF",   # ruff-specific
+    "BLE",   # blind-except
+    "EXE",   # executable/shebang consistency
+    "PYI",   # flake8-pyi
+]
+
+[tool.pyright]
+include = ["src"]
+# The simulation/DSP code leans on numpy/scipy duck-typing, so run in basic mode:
+# catch real type errors (bad attribute, wrong arity) without drowning in
+# untyped-third-party noise.
+typeCheckingMode = "basic"
+pythonVersion = "3.12"
+reportMissingTypeStubs = false
+
+[tool.coverage.run]
+source = ["src/smartscan"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
 
 [tool.setuptools.packages.find]
 where = ["src"]

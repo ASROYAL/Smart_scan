@@ -7,8 +7,6 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 
-from smartscan.evaluation.evaluator import RunArtifacts
-
 
 def scheduler_comparison_bar(
     summary_df: pd.DataFrame, metric: str, scenario: str | None = None,
@@ -23,7 +21,7 @@ def scheduler_comparison_bar(
         facet_col="scenario" if scenario is None else None,
         title=f"{metric} by scheduler" + (f" — {scenario}" if scenario else ""),
     )
-    fig.update_layout(height=400, margin=dict(l=40, r=20, t=60, b=40))
+    fig.update_layout(height=400, margin={"l": 40, "r": 20, "t": 60, "b": 40})
     return fig
 
 
@@ -38,7 +36,7 @@ def discovery_delay_distribution(delays: list[float]) -> go.Figure:
         xaxis_title="Delay (ms)",
         yaxis_title="Count",
         height=350,
-        margin=dict(l=40, r=20, t=40, b=40),
+        margin={"l": 40, "r": 20, "t": 40, "b": 40},
     )
     return fig
 
@@ -52,14 +50,14 @@ def priority_heatmap(
         x=times,
         y=list(range(num_bands)),
         colorscale="Plasma",
-        colorbar=dict(title="priority"),
+        colorbar={"title": "priority"},
     ))
     fig.update_layout(
         title="Scheduler priority heatmap",
         xaxis_title="Time (s)",
         yaxis_title="Band ID",
         height=450,
-        margin=dict(l=40, r=20, t=40, b=40),
+        margin={"l": 40, "r": 20, "t": 40, "b": 40},
     )
     return fig
 
@@ -75,12 +73,12 @@ def metric_radar(summary_df: pd.DataFrame, scenario: str) -> go.Figure:
         values = [row[m] for m in metrics]
         values.append(values[0])  # close the loop
         fig.add_trace(go.Scatterpolar(
-            r=values, theta=metrics + [metrics[0]],
+            r=values, theta=[*metrics, metrics[0]],
             fill="toself", name=row["scheduler"],
         ))
     fig.update_layout(
         title=f"Scheduler comparison — {scenario}",
-        polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+        polar={"radialaxis": {"visible": True, "range": [0, 1]}},
         height=450,
     )
     return fig

@@ -109,7 +109,7 @@ class TestSpectrumStateManager:
             ewma_alpha=0.5,
         )
         state = sm.get_state(0)
-        initial = state.rolling_activity_prob  # 0.5
+        assert state.rolling_activity_prob == pytest.approx(0.5)  # starts neutral
         sm.update(0, make_obs(band_id=0, detected=True, t=1.0))
         # 0.5 * 1.0 + 0.5 * 0.5 = 0.75
         assert sm.get_state(0).rolling_activity_prob == pytest.approx(0.75)

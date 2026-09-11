@@ -42,15 +42,17 @@ class BaseScheduler(ABC):
         self,
         decision: ScanDecision,
         observation: BandObservation,
+        reward: float = 0.0,
     ) -> None:
         """Update internal state after receiving an observation.
 
         Args:
             decision: The scan decision that was executed.
             observation: The resulting observation (detection result, NOT ground truth).
+            reward: The shared shaped reward for this scan (same value the runner
+                reports), so every scheduler optimises the same objective.
         """
         ...
 
     def reset(self) -> None:
         """Reset scheduler to initial state. Override if scheduler has learnable state."""
-        pass

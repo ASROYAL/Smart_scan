@@ -84,15 +84,16 @@ class TestFeatureExtractor:
         arr = features.to_array()
         assert len(arr) == 14
 
-    def test_periodic_history_estimates_period(self):
+    def test_features_pass_through_state_period(self):
+        """Periodicity is estimated by the state manager and stored on BandState;
+        the extractor reads it through rather than recomputing (avoids double work)."""
         extractor = FeatureExtractor(history_window=50)
         state = BandState(
             band_id=0, freq_start=100e6, freq_end=120e6, observation_count=20,
+            estimated_period=2.0,   # supplied by the state manager's online estimate
         )
         history = BandHistory(band_id=0)
-        # Detections every 2 seconds
         for t in np.arange(0, 20, 0.5):
-            detected = (t % 2.0) < 0.5
-            history.add(make_obs(float(t), detected))
+            history.add(make_obs(float(t), (t % 2.0) < 0.5))
         features = extractor.extract(state, history, current_time=20.0)
-        assert features.estimated_period is not None
+        assert features.estimated_period == 2.0

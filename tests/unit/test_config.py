@@ -1,16 +1,15 @@
 """Tests for the configuration system."""
 
 import tempfile
-from pathlib import Path
 
 import pytest
 import yaml
 
 from smartscan.core.config import (
     SmartScanConfig,
+    _deep_merge,
     load_config,
     load_config_with_overrides,
-    _deep_merge,
 )
 
 

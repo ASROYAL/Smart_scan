@@ -34,4 +34,3 @@ class BasePredictor(ABC):
 
     def reset(self) -> None:
         """Reset predictor state."""
-        pass

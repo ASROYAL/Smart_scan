@@ -6,9 +6,18 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from smartscan.core.models import EmitterConfig, EmitterType, GroundTruthEvent
+from smartscan.core.models import (
+    EmitterConfig,
+    EmitterType,
+    GroundTruthEvent,
+    WaveformType,
+)
 from smartscan.simulation.noise import power_for_snr
-from smartscan.simulation.waveform import generate_tone
+from smartscan.simulation.waveform import (
+    generate_bandlimited_noise,
+    generate_chirp,
+    generate_tone,
+)
 
 
 class BaseEmitter(ABC):
@@ -55,59 +64,91 @@ class BaseEmitter(ABC):
         if abs(freq_offset) > bandwidth / 2:
             return None
 
-        signal = generate_tone(
-            num_samples=num_samples,
-            sample_rate=sample_rate,
-            frequency_offset=freq_offset,
-            power_dbm=self.signal_power_dbm,
-        )
-        return signal
+        return self._synthesize(num_samples, sample_rate, freq_offset)
+
+    def _effective_waveform(self) -> WaveformType:
+        # Default is a CW tone for every emitter (keeps energy detection tractable
+        # and results comparable). Wider/realistic waveforms — chirp for radar LFM,
+        # band-limited noise / digital for modulated emitters — are opt-in via
+        # ``EmitterConfig.waveform``.
+        return self.config.waveform if self.config.waveform is not None else WaveformType.TONE
+
+    def _synthesize(self, num_samples, sample_rate, freq_offset):
+        """Build the IQ for this emitter using its (possibly inferred) waveform.
+
+        Power comes from ``snr_db`` (the single power control); ``bandwidth`` shapes
+        the occupied spectrum for the non-tone waveforms.
+        """
+        wf = self._effective_waveform()
+        p = self.signal_power_dbm
+        bw = self.config.bandwidth
+        if wf == WaveformType.TONE:
+            return generate_tone(num_samples, sample_rate, freq_offset, power_dbm=p)
+        if wf == WaveformType.CHIRP:
+            return generate_chirp(num_samples, sample_rate, freq_offset, bw, power_dbm=p)
+        if wf == WaveformType.PULSED:
+            # gated CW: on for the first half of the window (representative pulse)
+            sig = generate_tone(num_samples, sample_rate, freq_offset, power_dbm=p)
+            gate = np.zeros(num_samples)
+            gate[: max(1, num_samples // 2)] = 1.0
+            return sig * gate
+        # BANDLIMITED_NOISE / DIGITAL — occupy `bandwidth`
+        return generate_bandlimited_noise(num_samples, sample_rate, bw,
+                                          center_offset=freq_offset, power_dbm=p)
+
+    def activity_intervals(
+        self, start_time: float, end_time: float,
+    ) -> list[tuple[float, float, float]]:
+        """Return (t_start, t_end, frequency) tuples for each activity episode.
+
+        A new episode begins whenever activity toggles on OR the emitter's
+        frequency changes. Subclasses override this analytically (fast + exact);
+        the default here walks the clock and is only a fallback.
+        """
+        intervals: list[tuple[float, float, float]] = []
+        dt = 0.001
+        t = start_time
+        in_event = False
+        ev_start = 0.0
+        ev_freq = 0.0
+        while t <= end_time:
+            active = self.is_active(t)
+            freq = self.get_frequency(t) if active else ev_freq
+            if active and not in_event:
+                ev_start, ev_freq, in_event = t, freq, True
+            elif in_event and (not active or abs(freq - ev_freq) > 1e3):
+                intervals.append((ev_start, t, ev_freq))
+                if active:  # frequency changed while still on -> start a new episode
+                    ev_start, ev_freq = t, freq
+                else:
+                    in_event = False
+            t += dt
+        if in_event:
+            intervals.append((ev_start, end_time, ev_freq))
+        return intervals
 
     def get_ground_truth_events(
         self, start_time: float, end_time: float,
     ) -> list[GroundTruthEvent]:
-        """Return all activity events in the time range. For evaluation only."""
-        events = []
-        dt = 0.001  # 1ms resolution for ground truth scanning
-        t = start_time
-        in_event = False
-        event_start = 0.0
-
-        while t <= end_time:
-            active = self.is_active(t)
-            freq = self.get_frequency(t)
-            half_bw = self.config.bandwidth / 2
-
-            if active and not in_event:
-                event_start = t
-                in_event = True
-            elif not active and in_event:
-                events.append(GroundTruthEvent(
-                    emitter_id=self.emitter_id,
-                    freq_start=freq - half_bw,
-                    freq_end=freq + half_bw,
-                    time_start=event_start,
-                    time_end=t,
-                    amplitude=self.config.amplitude,
-                    snr_db=self.config.snr_db,
-                ))
-                in_event = False
-            t += dt
-
-        if in_event:
-            freq = self.get_frequency(end_time)
-            half_bw = self.config.bandwidth / 2
-            events.append(GroundTruthEvent(
+        """Frequency-aware activity events in the range. For evaluation only."""
+        half_bw = self.config.bandwidth / 2
+        return [
+            GroundTruthEvent(
                 emitter_id=self.emitter_id,
-                freq_start=freq - half_bw,
-                freq_end=freq + half_bw,
-                time_start=event_start,
-                time_end=end_time,
-                amplitude=self.config.amplitude,
-                snr_db=self.config.snr_db,
-            ))
+                freq_start=freq - half_bw, freq_end=freq + half_bw,
+                time_start=t0, time_end=t1,
+                amplitude=self.config.amplitude, snr_db=self.config.snr_db,
+            )
+            for (t0, t1, freq) in self.activity_intervals(start_time, end_time)
+            if t1 > t0
+        ]
 
-        return events
+
+def _window(config, start: float, end: float) -> tuple[float, float] | None:
+    """Clip [start, end] to the emitter's active lifetime; None if empty."""
+    es = max(start, config.start_time)
+    ee = min(end, config.end_time) if config.end_time is not None else end
+    return (es, ee) if ee > es else None
 
 
 class ContinuousEmitter(BaseEmitter):
@@ -116,12 +157,14 @@ class ContinuousEmitter(BaseEmitter):
     def is_active(self, time: float) -> bool:
         if time < self.config.start_time:
             return False
-        if self.config.end_time is not None and time > self.config.end_time:
-            return False
-        return True
+        return not (self.config.end_time is not None and time > self.config.end_time)
 
     def get_frequency(self, time: float) -> float:
         return self.config.center_frequency
+
+    def activity_intervals(self, start_time, end_time):
+        w = _window(self.config, start_time, end_time)
+        return [(w[0], w[1], self.config.center_frequency)] if w else []
 
 
 class PeriodicBurstEmitter(BaseEmitter):
@@ -139,6 +182,27 @@ class PeriodicBurstEmitter(BaseEmitter):
 
     def get_frequency(self, time: float) -> float:
         return self.config.center_frequency
+
+    def activity_intervals(self, start_time, end_time):
+        w = _window(self.config, start_time, end_time)
+        if not w:
+            return []
+        es, ee = w
+        period = self.config.period or 1.0
+        duty = self.config.duty_cycle or 0.5
+        freq = self.config.center_frequency
+        out = []
+        k = int((es - self.config.start_time) // period)
+        while True:
+            cyc = self.config.start_time + k * period
+            if cyc > ee:
+                break
+            on0, on1 = cyc, cyc + period * duty
+            a, b = max(on0, es), min(on1, ee)
+            if b > a:
+                out.append((a, b, freq))
+            k += 1
+        return out
 
 
 class RandomBurstEmitter(BaseEmitter):
@@ -187,6 +251,20 @@ class RandomBurstEmitter(BaseEmitter):
     def get_frequency(self, time: float) -> float:
         return self.config.center_frequency
 
+    def activity_intervals(self, start_time, end_time):
+        w = _window(self.config, start_time, end_time)
+        if not w:
+            return []
+        es, ee = w
+        self._ensure_schedule(ee)
+        freq = self.config.center_frequency
+        out = []
+        for bs, be in self._bursts:
+            a, b = max(bs, es), min(be, ee)
+            if b > a:
+                out.append((a, b, freq))
+        return out
+
 
 class FrequencyHoppingEmitter(BaseEmitter):
     """Hops between predefined frequencies on a schedule."""
@@ -194,9 +272,7 @@ class FrequencyHoppingEmitter(BaseEmitter):
     def is_active(self, time: float) -> bool:
         if time < self.config.start_time:
             return False
-        if self.config.end_time is not None and time > self.config.end_time:
-            return False
-        return True
+        return not (self.config.end_time is not None and time > self.config.end_time)
 
     def get_frequency(self, time: float) -> float:
         freqs = self.config.hop_frequencies
@@ -205,6 +281,25 @@ class FrequencyHoppingEmitter(BaseEmitter):
         interval = self.config.hop_interval or 1.0
         idx = int((time - self.config.start_time) / interval) % len(freqs)
         return freqs[idx]
+
+    def activity_intervals(self, start_time, end_time):
+        w = _window(self.config, start_time, end_time)
+        if not w:
+            return []
+        es, ee = w
+        freqs = self.config.hop_frequencies or [self.config.center_frequency]
+        interval = self.config.hop_interval or 1.0
+        out = []
+        k = int((es - self.config.start_time) // interval)
+        while True:
+            h0 = self.config.start_time + k * interval
+            if h0 > ee:
+                break
+            a, b = max(h0, es), min(h0 + interval, ee)
+            if b > a:
+                out.append((a, b, freqs[k % len(freqs)]))
+            k += 1
+        return out
 
 
 class ScanLikeEmitter(BaseEmitter):
@@ -229,6 +324,78 @@ class ScanLikeEmitter(BaseEmitter):
         idx = int((time - self.config.start_time) / interval) % len(freqs)
         return freqs[idx]
 
+    def activity_intervals(self, start_time, end_time):
+        w = _window(self.config, start_time, end_time)
+        if not w:
+            return []
+        es, ee = w
+        freqs = self.config.hop_frequencies or [self.config.center_frequency]
+        interval = self.config.hop_interval or 1.0
+        duty = self.config.duty_cycle or 0.5
+        out = []
+        k = int((es - self.config.start_time) // interval)
+        while True:
+            h0 = self.config.start_time + k * interval
+            if h0 > ee:
+                break
+            a, b = max(h0, es), min(h0 + interval * duty, ee)
+            if b > a:
+                out.append((a, b, freqs[k % len(freqs)]))
+            k += 1
+        return out
+
+
+class RadarScanEmitter(BaseEmitter):
+    """Rotating-antenna radar seen by an ES receiver.
+
+    A search radar transmits continuously, but its main beam only points at our
+    receiver for a brief window (``beam_dwell``) once per antenna rotation
+    (``scan_period``). From the receiver's viewpoint the emitter is therefore ON
+    for ``beam_dwell`` seconds every ``scan_period`` — a very low duty cycle,
+    which is what makes such emitters hard to intercept.
+
+    Optionally frequency-agile: if ``hop_frequencies`` are given, the radar
+    changes carrier on each rotation (idx by rotation number).
+    """
+
+    def is_active(self, time: float) -> bool:
+        if time < self.config.start_time:
+            return False
+        if self.config.end_time is not None and time > self.config.end_time:
+            return False
+        scan_period = self.config.scan_period or 1.0
+        beam_dwell = self.config.beam_dwell or (scan_period * 0.05)
+        phase = (time - self.config.start_time) % scan_period
+        return phase < beam_dwell
+
+    def get_frequency(self, time: float) -> float:
+        freqs = self.config.hop_frequencies
+        if not freqs:
+            return self.config.center_frequency
+        scan_period = self.config.scan_period or 1.0
+        rotation = int((time - self.config.start_time) / scan_period)
+        return freqs[rotation % len(freqs)]
+
+    def activity_intervals(self, start_time, end_time):
+        w = _window(self.config, start_time, end_time)
+        if not w:
+            return []
+        es, ee = w
+        freqs = self.config.hop_frequencies or [self.config.center_frequency]
+        scan_period = self.config.scan_period or 1.0
+        beam_dwell = self.config.beam_dwell or (scan_period * 0.05)
+        out = []
+        k = int((es - self.config.start_time) // scan_period)
+        while True:
+            r0 = self.config.start_time + k * scan_period
+            if r0 > ee:
+                break
+            a, b = max(r0, es), min(r0 + beam_dwell, ee)      # one illumination
+            if b > a:
+                out.append((a, b, freqs[k % len(freqs)]))
+            k += 1
+        return out
+
 
 def create_emitter(
     config: EmitterConfig, noise_power_dbm: float, seed: int = 0,
@@ -245,5 +412,7 @@ def create_emitter(
             return FrequencyHoppingEmitter(config, noise_power_dbm)
         case EmitterType.SCAN_LIKE:
             return ScanLikeEmitter(config, noise_power_dbm)
+        case EmitterType.RADAR_SCAN:
+            return RadarScanEmitter(config, noise_power_dbm)
         case _:
             raise ValueError(f"Unknown emitter type: {config.emitter_type}")

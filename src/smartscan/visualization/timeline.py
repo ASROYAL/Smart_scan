@@ -18,7 +18,7 @@ def band_selection_timeline(artifacts: RunArtifacts) -> go.Figure:
     fig = go.Figure()
     fig.add_trace(go.Scatter(
         x=steps, y=bands, mode="markers",
-        marker=dict(color=colors, size=5),
+        marker={"color": colors, "size": 5},
         name="scan",
         text=["hit" if r.detected else "miss" for r in records],
     ))
@@ -27,7 +27,7 @@ def band_selection_timeline(artifacts: RunArtifacts) -> go.Figure:
         xaxis_title="Scan step",
         yaxis_title="Band ID",
         height=400,
-        margin=dict(l=40, r=20, t=40, b=40),
+        margin={"l": 40, "r": 20, "t": 40, "b": 40},
     )
     return fig
 
@@ -40,13 +40,13 @@ def cumulative_detections(artifacts: RunArtifacts) -> go.Figure:
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=steps, y=cumulative, mode="lines",
-                              line=dict(color="#1f77b4")))
+                              line={"color": "#1f77b4"}))
     fig.update_layout(
         title="Cumulative detections",
         xaxis_title="Scan step",
         yaxis_title="Cumulative detections",
         height=350,
-        margin=dict(l=40, r=20, t=40, b=40),
+        margin={"l": 40, "r": 20, "t": 40, "b": 40},
     )
     return fig
 
@@ -60,15 +60,15 @@ def reward_over_time(artifacts: RunArtifacts) -> go.Figure:
 
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=steps, y=rewards, mode="markers",
-                              marker=dict(size=3, color="lightgray"), name="reward"))
+                              marker={"size": 3, "color": "lightgray"}, name="reward"))
     fig.add_trace(go.Scatter(x=steps, y=running_avg, mode="lines",
-                              line=dict(color="#ff7f0e", width=2), name="running avg"))
+                              line={"color": "#ff7f0e", "width": 2}, name="running avg"))
     fig.update_layout(
         title="Reward over time",
         xaxis_title="Scan step",
         yaxis_title="Reward",
         height=350,
-        margin=dict(l=40, r=20, t=40, b=40),
+        margin={"l": 40, "r": 20, "t": 40, "b": 40},
     )
     return fig
 
@@ -85,15 +85,15 @@ def true_vs_detected_timeline(
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=times, y=truly, mode="lines+markers",
                               name="truly active (ground truth)",
-                              line=dict(color="#2ca02c")))
+                              line={"color": "#2ca02c"}))
     fig.add_trace(go.Scatter(x=times, y=detected, mode="markers",
                               name="detected",
-                              marker=dict(color="#d62728", symbol="x", size=8)))
+                              marker={"color": "#d62728", "symbol": "x", "size": 8}))
     fig.update_layout(
         title=f"Band {band_id}: true vs detected activity",
         xaxis_title="Time (s)",
         yaxis_title="Active (1) / Inactive (0)",
         height=350,
-        margin=dict(l=40, r=20, t=40, b=40),
+        margin={"l": 40, "r": 20, "t": 40, "b": 40},
     )
     return fig
