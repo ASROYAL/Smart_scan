@@ -658,7 +658,7 @@ def _war_dynamics_chart(history: list[dict[str, Any]]) -> go.Figure:
         rows=2,
         cols=1,
         shared_xaxes=True,
-        vertical_spacing=0.12,
+        vertical_spacing=0.22,
         subplot_titles=("ROLLING TRACK CONFIDENCE", "SIGNAL RATE OF CHANGE"),
     )
     if not frame.empty:
@@ -693,7 +693,7 @@ def _war_dynamics_chart(history: list[dict[str, Any]]) -> go.Figure:
         plot_bgcolor="#080000",
         font={"color": "#ffd7d7", "family": "JetBrains Mono", "size": 10},
         margin={"l": 48, "r": 16, "t": 58, "b": 30},
-        height=360,
+        height=420,
         showlegend=False,
     )
     fig.update_xaxes(gridcolor="#3b1111")
