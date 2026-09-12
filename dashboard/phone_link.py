@@ -26,7 +26,6 @@ from plotly.subplots import make_subplots
 from smartscan.core.config import load_config
 from smartscan.core.models import DetectorType, SchedulerType
 from smartscan.evaluation.experiment import build_and_run
-from smartscan.evaluation.metrics import emitter_intercept_metrics
 from smartscan.simulation.scenarios import scenario_phone_training
 from smartscan.telemetry.companion import get_companion_server
 from smartscan.telemetry.phone import (
@@ -1171,47 +1170,20 @@ def _render_simulation_console() -> None:
     )
     result = outcome.result
     records = outcome.artifacts.records
-    truth = outcome.environment.get_all_ground_truth(0.0, result.duration)
-    target = emitter_intercept_metrics(records, truth, emitter_id=0, mission_end=result.duration)
-    st.markdown("#### TRAINING TARGET // EMITTER 0")
-    columns = st.columns(6)
-    columns[0].metric("TARGET PD", f"{target.scan_probability_of_detection:.3f}")
-    columns[1].metric(
-        "TARGET OPPORTUNITIES",
-        f"{target.opportunities}",
-        help="Receiver dwells that overlapped the active training target.",
+    st.markdown("#### ALL-EMITTER MISSION METRICS")
+    st.caption(
+        "Mission-wide evaluation across the controlled emitter and background activity."
     )
-    columns[2].metric(
-        "TARGET DETECTIONS",
-        f"{target.detected_opportunities}/{target.opportunities}",
+    columns = st.columns(7)
+    columns[0].metric("DETECTION PD", f"{result.probability_of_detection:.3f}")
+    columns[1].metric("FALSE ALARM", f"{result.probability_of_false_alarm:.3f}")
+    columns[2].metric("DISCOVERY", f"{result.activity_discovery_ratio:.3f}")
+    columns[3].metric("AVG DELAY", f"{result.avg_discovery_delay * 1000:.0f} ms")
+    columns[4].metric("AVG REWARD", f"{result.avg_reward:.3f}")
+    columns[5].metric("MISSED EVENTS", f"{result.missed_event_rate:.3f}")
+    columns[6].metric(
+        "CENSORED DELAY", f"{result.censored_avg_intercept_time * 1000:.0f} ms"
     )
-    columns[3].metric(
-        "TARGET EVENTS FOUND", f"{target.discovered_events}/{target.total_events}"
-    )
-    columns[4].metric("TARGET MISSED", f"{target.missed_event_rate:.3f}")
-    columns[5].metric(
-        "TARGET CENSORED DELAY", f"{target.censored_avg_intercept_time * 1000:.0f} ms"
-    )
-    if target.opportunities < 10:
-        st.warning(
-            "LOW TARGET SAMPLE COUNT // Increase scan steps or repeat several seeds before "
-            "comparing input levels."
-        )
-    with st.expander("ALL-EMITTER MISSION METRICS"):
-        st.caption(
-            "These combine the training target and fixed background emitters. They measure the "
-            "whole mission and may change less than the target-only values."
-        )
-        columns = st.columns(7)
-        columns[0].metric("ALL-EMITTER PD", f"{result.probability_of_detection:.3f}")
-        columns[1].metric("FALSE ALARM", f"{result.probability_of_false_alarm:.3f}")
-        columns[2].metric("DISCOVERY", f"{result.activity_discovery_ratio:.3f}")
-        columns[3].metric("AVG DELAY", f"{result.avg_discovery_delay * 1000:.0f} ms")
-        columns[4].metric("AVG REWARD", f"{result.avg_reward:.3f}")
-        columns[5].metric("MISSED EVENTS", f"{result.missed_event_rate:.3f}")
-        columns[6].metric(
-            "CENSORED DELAY", f"{result.censored_avg_intercept_time * 1000:.0f} ms"
-        )
     frame = pd.DataFrame(
         {
             "time": [row.timestamp for row in records],
@@ -1420,10 +1392,10 @@ def render_phone_link(palette: dict[str, str]) -> None:
             "transition near -3 to 0 dB. The old -8 + 0.38 × quality mapping saturated the "
             "detector, making 60% and 90% runs nearly identical.\n\n"
             "For a controlled test, keep the seed, scheduler, detector, and scan count fixed. Run "
-            "at low, medium, and high demo quality, then compare **TARGET PD**, **TARGET EVENTS "
-            "FOUND**, and **TARGET MISSED** first. The all-emitter metrics also include fixed "
-            "background activity, so they are less sensitive to this one input. Use at least ten "
-            "target opportunities, repeat across several seeds, and compare against round-robin. "
+            "at low, medium, and high demo quality, then compare the all-emitter probability of "
+            "detection, discovery, missed-event rate, delay, and reward. These mission metrics "
+            "include fixed background activity, so repeat across several seeds and compare "
+            "against round-robin. "
             "A serious evaluation should report distributions and confidence intervals rather "
             "than one favorable run."
         )
