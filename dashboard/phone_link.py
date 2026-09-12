@@ -26,6 +26,7 @@ from plotly.subplots import make_subplots
 from smartscan.core.config import load_config
 from smartscan.core.models import DetectorType, SchedulerType
 from smartscan.evaluation.experiment import build_and_run
+from smartscan.evaluation.metrics import emitter_intercept_metrics
 from smartscan.simulation.scenarios import scenario_phone_training
 from smartscan.telemetry.companion import get_companion_server
 from smartscan.telemetry.phone import (
@@ -88,6 +89,9 @@ class TrainingBridgeInput:
     synthetic_snr_db: float
     source: str
     basis: str
+    measurement: str
+    limitation: str
+    sample_age_seconds: float | None
     valid: bool
     status: str
 
@@ -462,17 +466,45 @@ def build_training_bridge_input(snapshot: dict[str, Any]) -> TrainingBridgeInput
     quality = max(0, min(100, int(snapshot.get("quality", 0))))
     source = str(snapshot.get("source", "UNKNOWN"))
     link_state = snapshot.get("link_state", LinkState.OFFLINE)
+    sample_age = snapshot.get("sample_age")
+    sample_age_seconds = float(sample_age) if sample_age is not None else None
     if source == "PHONE WEB":
         basis = "NETWORK TRANSPORT PROXY (LATENCY / JITTER / FRESHNESS)"
+        measurement = "PHONE-TO-MAC NETWORK HEALTH"
+        limitation = "NOT RF POWER, RANGE, BEARING, LOCATION OR DEVICE CLASS"
+        valid = (
+            link_state == LinkState.LIVE
+            and quality > 0
+            and sample_age_seconds is not None
+            and sample_age_seconds <= 3.0
+        )
     elif source == "MAC BT":
         basis = "BLUETOOTH RSSI-DERIVED PROXY"
-    else:
+        measurement = "SHORT-RANGE RECEIVED BLUETOOTH POWER"
+        limitation = "RELATIVE PROXIMITY ONLY; NO RANGE, BEARING OR TARGET IDENTITY"
+        valid = (
+            link_state == LinkState.LIVE
+            and snapshot.get("rssi_dbm") is not None
+            and quality > 0
+            and sample_age_seconds is not None
+            and sample_age_seconds <= 3.0
+        )
+    elif source == "DEMO":
         basis = "CONTROLLED DEMO PROXY"
-    valid = link_state != LinkState.OFFLINE and quality > 0
+        measurement = "SOFTWARE-GENERATED TRAINING TRACE"
+        limitation = "NO HARDWARE OR REAL-WORLD OBSERVATION"
+        valid = link_state == LinkState.LIVE and quality > 0
+    else:
+        basis = "UNKNOWN INPUT SOURCE"
+        measurement = "UNVERIFIED"
+        limitation = "SOURCE SEMANTICS ARE UNKNOWN"
+        valid = False
     if valid:
-        status = "VALID TRAINING INPUT"
+        status = "VALID NORMALIZED TRAINING PROXY"
     elif link_state == LinkState.OFFLINE:
         status = "NO LIVE TELEMETRY — CONNECT A DEVICE OR SELECT DEMO SIGNAL"
+    elif sample_age_seconds is not None and sample_age_seconds > 3.0:
+        status = "STALE TELEMETRY — WAITING FOR A FRESH SAMPLE"
     else:
         status = "NO MEASURABLE SIGNAL — SIMULATION BLOCKED"
     return TrainingBridgeInput(
@@ -480,6 +512,9 @@ def build_training_bridge_input(snapshot: dict[str, Any]) -> TrainingBridgeInput
         synthetic_snr_db=quality_to_snr(quality),
         source=source,
         basis=basis,
+        measurement=measurement,
+        limitation=limitation,
+        sample_age_seconds=sample_age_seconds,
         valid=valid,
         status=status,
     )
@@ -569,7 +604,7 @@ def _chart(history: list[dict[str, Any]]) -> go.Figure:
     fig.add_hline(y=80, line_color="#ffd400", line_dash="dash", annotation_text="CAUTION 80%")
     fig.add_hline(y=90, line_color="#ff2020", line_dash="dash", annotation_text="WAR MODE >90%")
     fig.update_layout(
-        title="CONTACT SIGNAL // LIVE TRACE",
+        title="NORMALIZED TELEMETRY PROXY // LIVE TRACE",
         template="plotly_dark",
         paper_bgcolor="#030806",
         plot_bgcolor="#030806",
@@ -787,6 +822,7 @@ def _render_war_contact() -> None:
         get_companion_server().set_alert(AlertLevel.CRITICAL.value, int(snapshot["quality"]))
     history = st.session_state.get("phone_signal_history", [])
     assessment = assess_training_contact(snapshot, history)
+    bridge = build_training_bridge_input(snapshot)
     safe_name = html.escape(str(snapshot["name"]))
     age = snapshot.get("sample_age")
     age_text = f"{float(age):.2f}s" if age is not None else "--"
@@ -796,7 +832,7 @@ def _render_war_contact() -> None:
         <div class="war-command">
           <div><div class="war-kicker">{'CLEARANCE PENDING // OPERATOR RELEASE REQUIRED' if clearance_pending else 'AUTOMATIC ESCALATION // THRESHOLD EXCEEDED'}</div>
           <div class="war-title">WAR MODE</div><div class="war-sub">CONTACT CUSTODY AND DEFENSIVE RESPONSE SIMULATION</div></div>
-          <div class="war-signal"><span>LIVE SIGNAL</span><strong>{int(snapshot['quality'])}%</strong>
+          <div class="war-signal"><span>LIVE TRAINING PROXY</span><strong>{int(snapshot['quality'])}%</strong>
           <small>{html.escape(snapshot['source'])} // AGE {age_text}</small></div>
         </div>
         <div class="war-alert">{'SIGNAL BELOW TRIGGER // WAR MODE LATCHED' if clearance_pending else 'PRIORITY CONTACT // ' + html.escape(assessment.track_state) + ' // AUTOMATIC TRACK ACTIVE'}</div>
@@ -815,9 +851,11 @@ def _render_war_contact() -> None:
             "</div>",
             unsafe_allow_html=True,
         )
+        rssi_field = "SIMULATED_RSSI" if snapshot["source"] == "DEMO" else "RSSI"
         st.code(
             f"CONTACT={assessment.object_type}\nTELEMETRY_DEVICE={safe_name}\n"
-            f"LINK={snapshot['link_state'].value}\nRSSI={rssi_text}\n"
+            f"LINK={snapshot['link_state'].value}\n{rssi_field}={rssi_text}\n"
+            f"MEASUREMENT={bridge.measurement}\nLIMITATION={bridge.limitation}\n"
             f"MEAN_QUALITY={assessment.mean_quality:.1f}%\nVOLATILITY={assessment.volatility:.1f}\n"
             f"TRACK={assessment.track_state}",
             language=None,
@@ -855,12 +893,12 @@ def _render_war_contact() -> None:
             unsafe_allow_html=True,
         )
         st.markdown("### SIGNAL-DRIVEN THREAT MODEL")
-        bridge = build_training_bridge_input(snapshot)
         st.caption(
             "TELEMETRY PROXY SETS SYNTHETIC EMITTER SNR; THE SCHEDULER STILL SEES IQ ONLY"
         )
         st.code(
             f"INPUT={bridge.quality}%  SOURCE={bridge.source}\nBASIS={bridge.basis}\n"
+            f"MEASURES={bridge.measurement}\nLIMIT={bridge.limitation}\n"
             f"SYNTHETIC_SNR={bridge.synthetic_snr_db:.1f}dB  STATUS={bridge.status}",
             language=None,
         )
@@ -1018,11 +1056,18 @@ def _render_live_detail() -> None:
     variance = pd.Series(recent_rssi).std() if len(recent_rssi) > 1 else 0.0
     c1, c2, c3, c4, c5 = st.columns(5)
     c1.metric("LINK STATE", snapshot["link_state"].value)
-    c2.metric("RSSI", f"{snapshot['rssi_dbm']} dBm" if snapshot["rssi_dbm"] is not None else "--")
-    c3.metric("QUALITY", f"{snapshot['quality']}%")
+    rssi_label = "SIMULATED RSSI" if snapshot["source"] == "DEMO" else "RSSI"
+    c2.metric(rssi_label, f"{snapshot['rssi_dbm']} dBm" if snapshot["rssi_dbm"] is not None else "--")
+    c3.metric("NORMALIZED PROXY", f"{snapshot['quality']}%")
     motion = "NO TRACK" if snapshot["link_state"] == LinkState.OFFLINE else _trend(history)
     c4.metric("MOTION", motion)
     c5.metric("VARIANCE", f"{variance:.1f} dB")
+    source_truth = build_training_bridge_input(snapshot)
+    st.code(
+        f"SOURCE SEMANTICS // {source_truth.measurement}\n"
+        f"LIMITATION // {source_truth.limitation}",
+        language=None,
+    )
     if st.session_state.get("phone_source") == "Phone browser link":
         status = get_companion_server().registry.latest()
         latency = f"{status.latency_ms:.1f}ms" if status.latency_ms is not None else "--"
@@ -1060,7 +1105,8 @@ def _render_simulation_console() -> None:
     st.code(
         f"TELEMETRY INPUT={bridge.quality}%  SOURCE={bridge.source}  "
         f"SYNTHETIC SNR={bridge.synthetic_snr_db:.1f}dB\n"
-        f"BASIS={bridge.basis}\nSTATUS={bridge.status}  INPUT REFRESH=1s",
+        f"BASIS={bridge.basis}\nMEASURES={bridge.measurement}\n"
+        f"LIMIT={bridge.limitation}\nSTATUS={bridge.status}  INPUT REFRESH=1s",
         language=None,
     )
     if not bridge.valid:
@@ -1099,6 +1145,8 @@ def _render_simulation_console() -> None:
                 "synthetic_snr_db": bridge.synthetic_snr_db,
                 "source": bridge.source,
                 "basis": bridge.basis,
+                "measurement": bridge.measurement,
+                "limitation": bridge.limitation,
                 "captured_at": captured_at,
             }
 
@@ -1109,19 +1157,53 @@ def _render_simulation_console() -> None:
     st.code(
         f"RUN INPUT LOCKED // {captured['captured_at']}\n"
         f"{captured['source']} {captured['quality']}% -> {captured['synthetic_snr_db']:.1f}dB "
-        f"SYNTHETIC SNR",
+        f"SYNTHETIC SNR\nMEASURED={captured['measurement']}\n"
+        f"LIMITATION={captured['limitation']}",
         language=None,
     )
     result = outcome.result
-    columns = st.columns(7)
-    columns[0].metric("DETECTION PD", f"{result.probability_of_detection:.3f}")
-    columns[1].metric("FALSE ALARM", f"{result.probability_of_false_alarm:.3f}")
-    columns[2].metric("DISCOVERY", f"{result.activity_discovery_ratio:.3f}")
-    columns[3].metric("AVG DELAY", f"{result.avg_discovery_delay * 1000:.0f} ms")
-    columns[4].metric("AVG REWARD", f"{result.avg_reward:.3f}")
-    columns[5].metric("MISSED EVENTS", f"{result.missed_event_rate:.3f}")
-    columns[6].metric("CENSORED DELAY", f"{result.censored_avg_intercept_time * 1000:.0f} ms")
     records = outcome.artifacts.records
+    truth = outcome.environment.get_all_ground_truth(0.0, result.duration)
+    target = emitter_intercept_metrics(records, truth, emitter_id=0, mission_end=result.duration)
+    st.markdown("#### TRAINING TARGET // EMITTER 0")
+    columns = st.columns(6)
+    columns[0].metric("TARGET PD", f"{target.scan_probability_of_detection:.3f}")
+    columns[1].metric(
+        "TARGET OPPORTUNITIES",
+        f"{target.opportunities}",
+        help="Receiver dwells that overlapped the active training target.",
+    )
+    columns[2].metric(
+        "TARGET DETECTIONS",
+        f"{target.detected_opportunities}/{target.opportunities}",
+    )
+    columns[3].metric(
+        "TARGET EVENTS FOUND", f"{target.discovered_events}/{target.total_events}"
+    )
+    columns[4].metric("TARGET MISSED", f"{target.missed_event_rate:.3f}")
+    columns[5].metric(
+        "TARGET CENSORED DELAY", f"{target.censored_avg_intercept_time * 1000:.0f} ms"
+    )
+    if target.opportunities < 10:
+        st.warning(
+            "LOW TARGET SAMPLE COUNT // Increase scan steps or repeat several seeds before "
+            "comparing input levels."
+        )
+    with st.expander("ALL-EMITTER MISSION METRICS"):
+        st.caption(
+            "These combine the training target and fixed background emitters. They measure the "
+            "whole mission and may change less than the target-only values."
+        )
+        columns = st.columns(7)
+        columns[0].metric("ALL-EMITTER PD", f"{result.probability_of_detection:.3f}")
+        columns[1].metric("FALSE ALARM", f"{result.probability_of_false_alarm:.3f}")
+        columns[2].metric("DISCOVERY", f"{result.activity_discovery_ratio:.3f}")
+        columns[3].metric("AVG DELAY", f"{result.avg_discovery_delay * 1000:.0f} ms")
+        columns[4].metric("AVG REWARD", f"{result.avg_reward:.3f}")
+        columns[5].metric("MISSED EVENTS", f"{result.missed_event_rate:.3f}")
+        columns[6].metric(
+            "CENSORED DELAY", f"{result.censored_avg_intercept_time * 1000:.0f} ms"
+        )
     frame = pd.DataFrame(
         {
             "time": [row.timestamp for row in records],
@@ -1321,13 +1403,19 @@ def render_phone_link(palette: dict[str, str]) -> None:
     _render_simulation_console()
     with st.expander("SIGNAL-DRIVEN TRAINING // WHAT IT DOES AND HOW TO VALIDATE IT"):
         st.markdown(
-            "The current link-quality score is converted into a bounded synthetic SNR. That SNR "
-            "configures one periodic target emitter among random-burst decoys. The selected "
+            "The current link-quality score is converted into a calibrated synthetic SNR using "
+            "`SNR = -6 + 0.06 × quality`. That SNR configures one periodic 5 MHz digital-like "
+            "target emitter among random-burst decoys. The selected "
             "scheduler never receives the phone score or simulator truth; it selects bands from "
-            "its accumulated detections and misses, while the detector works on generated IQ.\n\n"
+            "its accumulated detections and misses, while the detector works on generated IQ. "
+            "This narrow SNR range is deliberate: measured detector sweeps place its useful "
+            "transition near -3 to 0 dB. The old -8 + 0.38 × quality mapping saturated the "
+            "detector, making 60% and 90% runs nearly identical.\n\n"
             "For a controlled test, keep the seed, scheduler, detector, and scan count fixed. Run "
-            "at low, medium, and high demo quality, then compare probability of detection, false "
-            "alarm rate, discovery ratio, delay, and reward. Repeat across several seeds and "
-            "compare against round-robin. A serious evaluation should report distributions and "
-            "confidence intervals rather than one favorable run."
+            "at low, medium, and high demo quality, then compare **TARGET PD**, **TARGET EVENTS "
+            "FOUND**, and **TARGET MISSED** first. The all-emitter metrics also include fixed "
+            "background activity, so they are less sensitive to this one input. Use at least ten "
+            "target opportunities, repeat across several seeds, and compare against round-robin. "
+            "A serious evaluation should report distributions and confidence intervals rather "
+            "than one favorable run."
         )

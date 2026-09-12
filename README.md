@@ -185,8 +185,11 @@ dashboard; this user gesture satisfies Safari and Chrome autoplay rules, after
 which caution and War Mode transitions sound automatically. A phone-driven
 simulation captures the current valid link quality when the operator starts a
 run, records its source and timestamp, and converts it into the SNR of a synthetic
-target emitter using `SNR = -8 + 0.38 × quality`. It then runs that signal through
-the existing IQ, detector, scheduler, and evaluator pipeline. A zero value means
+5 MHz digital-like target emitter using the detector-calibrated mapping
+`SNR = -6 + 0.06 × quality`. It then runs that signal through the existing IQ,
+detector, scheduler, and evaluator pipeline. Target-only PD, event discovery,
+miss rate, and censored delay are reported separately from all-emitter mission
+metrics, along with the number of target observation opportunities. A zero value means
 no usable telemetry and blocks the run instead of silently creating a weakest-case
 emitter. Browser-link quality is explicitly labelled as a latency/jitter/freshness
 training proxy; it is not RF power, distance, direction, or target identity.

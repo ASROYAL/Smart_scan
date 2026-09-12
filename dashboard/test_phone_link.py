@@ -2,6 +2,8 @@
 
 from datetime import UTC, datetime
 
+import pytest
+
 from phone_link import (
     _response_ladder,
     assess_training_contact,
@@ -132,7 +134,7 @@ def test_training_bridge_rejects_zero_or_offline_input():
     bridge = build_training_bridge_input(snapshot)
 
     assert bridge.valid is False
-    assert bridge.synthetic_snr_db == -8.0
+    assert bridge.synthetic_snr_db == -6.0
     assert "NO LIVE TELEMETRY" in bridge.status
     assert bridge.basis.startswith("NETWORK TRANSPORT PROXY")
 
@@ -142,4 +144,4 @@ def test_training_bridge_captures_valid_demo_proxy():
 
     assert bridge.valid is True
     assert bridge.quality == 94
-    assert bridge.synthetic_snr_db == 27.72
+    assert bridge.synthetic_snr_db == pytest.approx(-0.36)

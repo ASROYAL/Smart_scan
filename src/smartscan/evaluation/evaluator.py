@@ -168,6 +168,7 @@ class ExperimentRunner:
                 freq_end=win_end,
                 predicted_prob=float(prob),
                 predicted_active=predicted_active,
+                dwell_time=meta.dwell_time,
             ))
             artifacts.band_visit_counts[decision.band_id] = (
                 artifacts.band_visit_counts.get(decision.band_id, 0) + 1
@@ -325,8 +326,11 @@ class Evaluator:
                 # Frequency overlap between the event and the scan's ACTUAL window
                 freq_overlap = (r.freq_end > event.freq_start
                                 and r.freq_start < event.freq_end)
-                # Time within the event window
-                time_within = event.time_start <= r.timestamp <= event.time_end
+                # Time overlap between the receiver dwell and the event window.
+                time_within = (
+                    r.timestamp + max(0.0, r.dwell_time) >= event.time_start
+                    and r.timestamp <= event.time_end
+                )
                 if freq_overlap and time_within and (
                     idx not in detection_times or r.timestamp < detection_times[idx]
                 ):

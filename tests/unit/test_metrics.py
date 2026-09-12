@@ -2,6 +2,7 @@
 
 import pytest
 
+from smartscan.core.models import GroundTruthEvent
 from smartscan.evaluation import metrics
 from smartscan.evaluation.metrics import ScanRecord
 
@@ -19,6 +20,29 @@ def rec(scan=0, t=0.0, band=0, detected=False, active=False, reward=0.0):
         scan_number=scan, timestamp=t, band_id=band,
         detected=detected, truly_active=active, reward=reward,
     )
+
+
+def test_emitter_metrics_use_dwell_overlap_and_ignore_other_emitters():
+    target = GroundTruthEvent(
+        emitter_id=0, freq_start=100.0, freq_end=110.0,
+        time_start=1.0, time_end=1.2, amplitude=1.0, snr_db=-2.0,
+    )
+    background = GroundTruthEvent(
+        emitter_id=1, freq_start=200.0, freq_end=210.0,
+        time_start=0.0, time_end=3.0, amplitude=1.0, snr_db=10.0,
+    )
+    records = [
+        ScanRecord(0, 0.9, 0, True, True, 1.0, 100.0, 110.0, dwell_time=0.2),
+        ScanRecord(1, 1.1, 1, True, True, 1.0, 200.0, 210.0, dwell_time=0.1),
+    ]
+
+    result = metrics.emitter_intercept_metrics(
+        records, [target, background], emitter_id=0, mission_end=3.0
+    )
+
+    assert result.opportunities == 1
+    assert result.scan_probability_of_detection == 1.0
+    assert result.discovered_events == 1
 
 
 class TestPD:

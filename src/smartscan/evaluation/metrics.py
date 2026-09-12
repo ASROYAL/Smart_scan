@@ -28,6 +28,79 @@ class ScanRecord:
     freq_end: float = 0.0
     predicted_prob: float = 0.5     # pre-scan predicted activity probability
     predicted_active: bool = False  # predicted_prob >= threshold
+    dwell_time: float = 0.0         # actual receiver dwell, for interval matching
+
+
+@dataclass(frozen=True)
+class EmitterInterceptMetrics:
+    """Evaluator-only performance for one emitter, never scheduler input."""
+
+    opportunities: int
+    detected_opportunities: int
+    scan_probability_of_detection: float
+    total_events: int
+    discovered_events: int
+    event_discovery_ratio: float
+    missed_event_rate: float
+    censored_avg_intercept_time: float
+
+
+def emitter_intercept_metrics(
+    records: list[ScanRecord],
+    ground_truth_events: list,
+    emitter_id: int,
+    mission_end: float,
+) -> EmitterInterceptMetrics:
+    """Score one simulated emitter without exposing its truth to the scheduler.
+
+    Opportunity PD answers the question the aggregate run metric cannot: when
+    the receiver actually observed this emitter while it was active, how often
+    did the detector fire? Event discovery measures distinct bursts found.
+    """
+
+    events = [event for event in ground_truth_events if event.emitter_id == emitter_id]
+
+    def overlaps(record: ScanRecord, event) -> bool:
+        scan_end = record.timestamp + max(0.0, record.dwell_time)
+        return (
+            record.freq_end > event.freq_start
+            and record.freq_start < event.freq_end
+            and scan_end >= event.time_start
+            and record.timestamp <= event.time_end
+        )
+
+    opportunity_records = [
+        record for record in records if any(overlaps(record, event) for event in events)
+    ]
+    detected_opportunities = sum(record.detected for record in opportunity_records)
+    opportunity_pd = (
+        detected_opportunities / len(opportunity_records) if opportunity_records else 0.0
+    )
+
+    first_detections: dict[int, float] = {}
+    for index, event in enumerate(events):
+        matches = [
+            record.timestamp
+            for record in records
+            if record.detected and overlaps(record, event)
+        ]
+        if matches:
+            first_detections[index] = min(matches)
+
+    censored_delay, missed_rate = censored_intercept_statistics(
+        [event.time_start for event in events], first_detections, mission_end
+    )
+    discovered = len(first_detections)
+    return EmitterInterceptMetrics(
+        opportunities=len(opportunity_records),
+        detected_opportunities=detected_opportunities,
+        scan_probability_of_detection=opportunity_pd,
+        total_events=len(events),
+        discovered_events=discovered,
+        event_discovery_ratio=activity_discovery_ratio(discovered, len(events)),
+        missed_event_rate=missed_rate,
+        censored_avg_intercept_time=censored_delay,
+    )
 
 
 def probability_of_detection(records: list[ScanRecord]) -> float:

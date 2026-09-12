@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from smartscan.core.models import EmitterConfig, EmitterType
+from smartscan.core.models import EmitterConfig, EmitterType, WaveformType
 from smartscan.telemetry.phone import quality_to_snr
 
 
@@ -176,10 +176,11 @@ def scenario_phone_training(
     total_bw: float = 1000e6,
     center: float = 500e6,
 ) -> Scenario:
-    """Consented phone-link strength driving a synthetic training emitter.
+    """Consented normalized telemetry proxy driving a synthetic training emitter.
 
-    The link score configures the simulated signal power. It is never passed to
-    a scheduler; schedulers observe only IQ produced by the RF environment.
+    The normalized score may originate from Bluetooth RSSI, browser transport
+    health, or a controlled demo trace. It configures simulated signal power
+    and is never passed to a scheduler; schedulers observe only generated IQ.
     """
 
     rng = np.random.default_rng(seed)
@@ -192,6 +193,7 @@ def scenario_phone_training(
         bandwidth=5e6,
         amplitude=1.0,
         snr_db=quality_to_snr(signal_quality),
+        waveform=WaveformType.DIGITAL,
         period=0.8,
         duty_cycle=0.35,
     )
@@ -211,7 +213,7 @@ def scenario_phone_training(
     ]
     return Scenario(
         "phone_training",
-        f"Phone-link training beacon at {signal_quality}% strength with background activity",
+        f"Telemetry-driven training beacon at {signal_quality}% proxy with background activity",
         [target, *decoys],
         duration=12.0,
     )

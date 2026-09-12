@@ -95,7 +95,13 @@ def advance_alert(
 
 
 def quality_to_snr(quality: int) -> float:
-    """Map a phone-link score to synthetic training-emitter SNR."""
+    """Map a telemetry score into the detector's useful synthetic-SNR range.
+
+    The training target is a 5 MHz digital-like waveform.  Calibration sweeps
+    place the energy detector's transition between roughly -3 and 0 dB.  Keep
+    the full 0--100 proxy range around that transition so different inputs
+    change detectability instead of all saturating at probability one.
+    """
 
     bounded = max(0, min(100, quality))
-    return -8.0 + bounded * 0.38
+    return -6.0 + bounded * 0.06

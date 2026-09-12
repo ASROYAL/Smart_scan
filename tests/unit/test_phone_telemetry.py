@@ -51,8 +51,8 @@ def test_war_mode_requires_signal_above_ninety_percent():
 def test_rssi_quality_and_training_snr_are_bounded():
     assert rssi_to_quality(-40) == ("EXCELLENT", 100)
     assert rssi_to_quality(None) == ("UNAVAILABLE", 0)
-    assert quality_to_snr(-1) == -8.0
-    assert quality_to_snr(101) == 30.0
+    assert quality_to_snr(-1) == -6.0
+    assert quality_to_snr(101) == 0.0
 
 
 def test_phone_training_scenario_uses_strength_only_as_environment_input():
@@ -60,4 +60,5 @@ def test_phone_training_scenario_uses_strength_only_as_environment_input():
     strong = scenario_phone_training(95, seed=4)
     assert weak.emitters[0].center_frequency == strong.emitters[0].center_frequency
     assert weak.emitters[0].snr_db < strong.emitters[0].snr_db
+    assert weak.emitters[0].waveform.value == "digital"
     assert strong.name == "phone_training"
