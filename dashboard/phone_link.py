@@ -1088,8 +1088,16 @@ def _render_live_detail() -> None:
         )
 
 
-@st.fragment(run_every=1.0)
 def _render_simulation_console() -> None:
+    """Render one stable training console in the parent page lifecycle.
+
+    The live telemetry panel already owns the high-rate fragment. Making this
+    second, stateful form an independently timed fragment allowed overlapping
+    reruns to leave duplicate consoles in the Streamlit DOM. A button click
+    reruns the parent script and captures a fresh proxy immediately, so this
+    form does not need its own timer.
+    """
+
     st.markdown("### SIGNAL-DRIVEN TRAINING RUN")
     st.caption(
         "The latest valid telemetry proxy is captured when RUN is pressed and converted into "

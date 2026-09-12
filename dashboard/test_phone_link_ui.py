@@ -65,6 +65,8 @@ def test_phone_console_renders_without_exception():
     assert app.select_slider[0].label == "DATA INTAKE INTERVAL"
     assert app.select_slider[0].value == 0.1
     assert app.button[-1].label == "EXECUTE PHONE-DRIVEN SIMULATION"
+    headings = [item.value for item in app.markdown]
+    assert headings.count("### SIGNAL-DRIVEN TRAINING RUN") == 1
 
 
 def test_war_mode_isolated_interface_renders_response_controls():
