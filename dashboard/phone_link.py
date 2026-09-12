@@ -1001,6 +1001,7 @@ def _render_war_mode() -> None:
           h1,h2,h3 {color:#ffeaea !important;letter-spacing:.08em;text-transform:uppercase;}
           .war-panel,div[data-testid="stMetric"],[data-testid="stPlotlyChart"],div[data-testid="stDataFrame"] {
             background:#090000 !important;border:1px solid #702020 !important;border-radius:0 !important;}
+          [data-testid="stPlotlyChart"] {margin:0 0 20px !important;}
           .war-panel {padding:14px;line-height:1.65;color:#e8bcbc;min-height:215px}.war-panel b{color:#fff;}
           .war-facts {display:grid;grid-template-columns:1.35fr 1fr 1fr;gap:10px;margin-bottom:14px;}
           .war-facts div {background:#090000;border:1px solid #702020;padding:12px;min-height:68px;}
